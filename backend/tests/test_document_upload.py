@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 
 
 @pytest.mark.asyncio
@@ -243,3 +243,27 @@ async def test_upload_database_failure_cleans_up_stored_file(
     assert remaining_files == [], (
         f"Upload files were not cleaned up: {remaining_files}"
     )
+
+    
+@pytest.mark.asyncio
+async def test_upload_at_exact_size_limit_succeeds(
+    client, user_a_headers, monkeypatch
+):
+    from app.api.v1.endpoints import documents
+
+    content = b"12345678"
+    monkeypatch.setattr(
+        documents.settings,
+        "MAX_UPLOAD_SIZE_BYTES",
+        len(content),
+    )
+
+    response = await client.post(
+        "/api/v1/documents",
+        headers=user_a_headers,
+        files={"file": ("exact-limit.txt", content, "text/plain")},
+        data={"title": "Exact size limit test", "category": "general"},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["file_size_bytes"] == len(content)
