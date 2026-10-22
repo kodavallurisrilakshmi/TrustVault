@@ -161,3 +161,196 @@ async def test_invalid_permission_level_is_rejected(
     )
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_document_list_is_isolated_between_users(
+    client,
+    db_session,
+    test_user_a,
+    test_user_b,
+    user_a_headers,
+    user_b_headers,
+):
+    private_document = Document(
+        id=uuid.uuid4(),
+        title="Alice Private Document",
+        description=None,
+        category="legal",
+        owner_id=test_user_a.id,
+        storage_key=f"test/{uuid.uuid4().hex}",
+        original_filename="private.pdf",
+        file_size_bytes=100,
+        mime_type="application/pdf",
+        content_sha256="e" * 64,
+    )
+
+    shared_document = Document(
+        id=uuid.uuid4(),
+        title="Alice Shared Document",
+        description=None,
+        category="legal",
+        owner_id=test_user_a.id,
+        storage_key=f"test/{uuid.uuid4().hex}",
+        original_filename="shared.pdf",
+        file_size_bytes=100,
+        mime_type="application/pdf",
+        content_sha256="f" * 64,
+    )
+
+    db_session.add_all([private_document, shared_document])
+    await db_session.flush()
+
+    permission = DocumentPermission(
+        id=uuid.uuid4(),
+        document_id=shared_document.id,
+        user_id=test_user_b.id,
+        permission_level="view",
+        granted_by=test_user_a.id,
+    )
+    db_session.add(permission)
+    await db_session.commit()
+
+    # User A should see both documents because A owns them.
+    response_a = await client.get(
+        "/api/v1/documents",
+        headers=user_a_headers,
+    )
+    assert response_a.status_code == 200
+    ids_a = {item["id"] for item in response_a.json()}
+    assert str(private_document.id) in ids_a
+    assert str(shared_document.id) in ids_a
+
+    # User B should see only the document explicitly shared with B.
+    response_b = await client.get(
+        "/api/v1/documents",
+        headers=user_b_headers,
+    )
+    assert response_b.status_code == 200
+    ids_b = {item["id"] for item in response_b.json()}
+    assert str(shared_document.id) in ids_b
+    assert str(private_document.id) not in ids_b
+@pytest.mark.asyncio
+
+
+async def test_revoked_viewer_loses_document_list_access(
+    client,
+    db_session,
+    test_user_a,
+    test_user_b,
+    user_a_headers,
+    user_b_headers,
+):
+    document = Document(
+        id=uuid.uuid4(),
+        title="Revocation Security Test",
+        description=None,
+        category="legal",
+        owner_id=test_user_a.id,
+        storage_key=f"test/{uuid.uuid4().hex}",
+        original_filename="revocation.pdf",
+        file_size_bytes=100,
+        mime_type="application/pdf",
+        content_sha256="9" * 64,
+    )
+    db_session.add(document)
+    await db_session.flush()
+
+    permission = DocumentPermission(
+        id=uuid.uuid4(),
+        document_id=document.id,
+        user_id=test_user_b.id,
+        permission_level="view",
+        granted_by=test_user_a.id,
+    )
+    db_session.add(permission)
+    await db_session.commit()
+
+    # Before revocation, the viewer can see the shared document.
+    before = await client.get(
+        "/api/v1/documents",
+        headers=user_b_headers,
+    )
+    assert before.status_code == 200
+    assert str(document.id) in {item["id"] for item in before.json()}
+
+    # The owner revokes the viewer's permission.
+    revoke = await client.delete(
+        f"/api/v1/documents/{document.id}/permissions/{test_user_b.id}",
+        headers=user_a_headers,
+    )
+    assert revoke.status_code == 200
+    assert revoke.json()["message"] == "Document access revoked successfully"
+
+    # After revocation, the viewer must no longer see the document.
+    after = await client.get(
+        "/api/v1/documents",
+        headers=user_b_headers,
+    )
+    assert after.status_code == 200
+    assert str(document.id) not in {item["id"] for item in after.json()}
+
+
+@pytest.mark.asyncio
+async def test_revoked_viewer_cannot_download_document(
+    client,
+    db_session,
+    test_user_a,
+    test_user_b,
+    user_a_headers,
+    user_b_headers,
+    monkeypatch,
+):
+    from app.api.v1.endpoints.documents import LocalStorageService
+
+    document = Document(
+        id=uuid.uuid4(),
+        title="Download Revocation Test",
+        description=None,
+        category="legal",
+        owner_id=test_user_a.id,
+        storage_key=f"test/{uuid.uuid4().hex}",
+        original_filename="revocation.pdf",
+        file_size_bytes=12,
+        mime_type="application/pdf",
+        content_sha256="a" * 64,
+    )
+    db_session.add(document)
+    await db_session.flush()
+
+    permission = DocumentPermission(
+        id=uuid.uuid4(),
+        document_id=document.id,
+        user_id=test_user_b.id,
+        permission_level="view",
+        granted_by=test_user_a.id,
+    )
+    db_session.add(permission)
+    await db_session.commit()
+
+    # Mock the storage read so this test focuses on authorization.
+    monkeypatch.setattr(
+        LocalStorageService,
+        "read_file",
+        lambda self, storage_key: b"test file data",
+    )
+
+    download_url = f"/api/v1/documents/{document.id}/download"
+
+    # Before revocation, the viewer can download the document.
+    before = await client.get(download_url, headers=user_b_headers)
+    assert before.status_code == 200
+    assert before.content == b"test file data"
+
+    # The owner revokes the viewer's permission.
+    revoke = await client.delete(
+        f"/api/v1/documents/{document.id}/permissions/{test_user_b.id}",
+        headers=user_a_headers,
+    )
+    assert revoke.status_code == 200
+    assert revoke.json()["message"] == "Document access revoked successfully"
+
+    # The same viewer must now be denied, even with the same URL.
+    after = await client.get(download_url, headers=user_b_headers)
+    assert after.status_code == 404
+    assert after.json()["detail"] == "Document not found"

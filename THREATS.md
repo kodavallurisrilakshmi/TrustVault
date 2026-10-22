@@ -1,54 +1,89 @@
 # TrustVault Threat Model (STRIDE) & Test Verification Matrix
-This document provides a systematic threat model for TrustVault based on the **STRIDE** methodology. Each threat is mapped to existing automated tests where available; uncovered requirements and manual verification are identified explicitly.
 
----
+This document describes TrustVault's threat model using the **STRIDE** methodology. Each threat is mapped to its mitigation and known automated test coverage. Test references must be verified against the current codebase before being considered passing evidence.
 
 ## 1. STRIDE Threat Matrix
 
-| Threat ID | Category | Attack Scenario | TrustVault Mitigation | Automated Integration Test |
-| :--- | :--- | :--- | :--- | :--- |
-| **TH-01** | **Spoofing** | Forged JWT access token with altered `sub` | Cryptographic signature verification with `HS256`/`RS256`; rejected with HTTP 401 | `test_auth_foundation.py::test_tampered_jwt_signature_rejected` |
-| **TH-02** | **Spoofing** | Replaying an expired authentication token | Token `exp` claim verified by JWT engine; expired tokens rejected with HTTP 401 | `test_auth_foundation.py::test_invalid_credentials_rejected` |
-| **TH-03** | **Spoofing** | Logged-out or revoked user session replay | Server compares JWT `token_version` claim to database `token_version` on every request | `test_auth_foundation.py::test_token_version_immediate_revocation` |
-| **TH-04** | **Spoofing** | Deactivated user accessing endpoints | User `is_active` verified in database on every request; deactivation increments version | `test_auth_foundation.py::test_deactivated_account_immediate_revocation` |
-| **TH-05** | **Tampering** | BOLA / IDOR document access by unauthorized user | Authorization dependency executes live SQL check; returns unified HTTP 404 | `test_document_access.py::test_unpermitted_user_cannot_access_document` |
-| **TH-06** | **Tampering** | Unauthorized metadata or content update | Enforces Editor or Owner permission level in database; returns HTTP 404 | `test_document_access.py::test_view_permission_does_not_allow_edit`  |
-| **TH-07** | **Tampering** | Modifying or deleting audit records via SQL | PostgreSQL `BEFORE UPDATE OR DELETE` trigger aborts query with exception | `test_db_privilege_separation.py::test_audit_logs_immutability_trigger_blocks_update` |
-| **TH-08** | **Repudiation** | Actor denies deleting document or accessing file | Request ID, actor IP, timestamp, action, and result recorded in immutable audit log | `test_audit_integrity.py::test_audit_event_logged_on_successful_login` |
-| **TH-09** | **Repudiation** | Attacker tampers with historical audit log | Cryptographic SHA-256-linked audit hash chain detects any modified, reordered, or deleted row | `test_audit_integrity.py::test_audit_chain_tamper_detection` |
-| **TH-10** | **Information Disclosure** | Probing document IDs via 403 vs 404 errors | Nonexistent and unauthorized document requests return uniform HTTP 404 response | `test_document_access.py::test_unpermitted_user_cannot_access_document` |
-| **TH-11** | **Information Disclosure** | Search query cross-user metadata leak | SQL filters restrict query results to owned or granted documents only | `Not currently covered by the verified automated test suite; add a dedicated cross-user search isolation test.` |
-| **TH-12** | **Information Disclosure** | Exposure of secrets via health/config endpoints | Health check endpoints strictly mask `SECRET_KEY` and database credentials | `test_config_health.py::test_config_check_masks_secrets` |
-| **TH-13** | **Denial of Service** | Storage exhaustion via oversized file uploads | In-flight streaming byte counter terminates upload at 25MB with HTTP 413 | `test_upload_validation.py::test_oversized_file_upload_rejected` (Phase 3) |
-| **TH-14** | **Elevation of Privilege** | Administrator accessing confidential documents | Admin role denied download endpoint access unless explicitly granted by owner | `Not currently covered by the verified automated test suite; add a dedicated administrator document-download authorization test.`  |
-| **TH-15** | **Elevation of Privilege** | Viewer attempting to grant document access | Only the Document Owner can grant or revoke access; viewers rejected | `test_document_permissions.py::test_non_owner_cannot_grant_permission`  |
-| **TH-16** | **Elevation of Privilege** | Application role altering database schema | Runtime role `trustvault_app` lacks DDL permissions; table drop/alter rejected | `test_db_privilege_separation.py::test_audit_logs_immutability_trigger_blocks_delete` |
-| **TH-17** | **Malicious Upload** | Path traversal via crafted filename (`../../etc/passwd`) | Random UUIDv4 storage keys decouple file on disk from client-provided filename | `test_upload_validation.py::test_path_traversal_filename_neutralized` (Phase 3) |
-| **TH-18** | **Malicious Upload** | Executable masquerading as PDF (`malware.exe`) | Magic-byte signature verification checks initial bytes before persistence | `test_upload_validation.py::test_executable_disguised_as_pdf_rejected` (Phase 3) |
-| **TH-19** | **Race Condition** | Using permission immediately after owner revocation | Permission check queries database on every request; subsequent call blocked immediately | `test_document_access.py::test_unpermitted_user_cannot_access_document` |
-| **TH-20** | **Race Condition** | Broken audit hash chain under concurrent writes | PostgreSQL advisory transaction locks serialize chain head reads and inserts | `test_audit_integrity.py::test_audit_chain_concurrency_continuity` |
+| Threat ID | Category | Attack Scenario | TrustVault Mitigation | Automated Test / Verification Status |
+|---|---|---|---|---|
+| TH-01 | Spoofing | Forged JWT with altered `sub` claim | JWT signature verification; invalid tokens return HTTP 401 | `test_auth_foundation.py::test_tampered_jwt_signature_rejected` |
+| TH-02 | Spoofing | Replaying an expired authentication token | JWT expiration (`exp`) validation | **Coverage gap:** add a dedicated expired-token test; invalid-credentials testing alone does not prove expiration handling |
+| TH-03 | Spoofing | Replaying a logged-out or revoked session | Compare the JWT `token_version` with the current database value on authenticated requests | `test_auth_foundation.py::test_token_version_immediate_revocation` |
+| TH-04 | Spoofing | Deactivated user accessing endpoints | Check account activation status during authentication | `test_auth_foundation.py::test_deactivated_account_immediate_revocation` |
+| TH-05 | Tampering | BOLA / IDOR document access | Enforce server-side document authorization and return a non-disclosing HTTP 404 | `test_document_access.py::test_unpermitted_user_cannot_access_document` |
+| TH-06 | Tampering | Unauthorized metadata or content modification | Enforce the required owner/editor permission before allowing modifications | `test_document_access.py::test_view_permission_does_not_allow_edit` |
+| TH-07 | Tampering | Modifying or deleting audit records through SQL | PostgreSQL triggers prevent audit-record updates and deletions | `test_db_privilege_separation.py::test_audit_logs_immutability_trigger_blocks_update` |
+| TH-08 | Repudiation | Actor denies performing an operation | Record available request, actor, timestamp, action, and outcome information in the audit log | `test_audit_integrity.py::test_audit_event_logged_on_successful_login`; document-specific audit coverage requires separate verification |
+| TH-09 | Repudiation | Tampering with historical audit records | Verify the SHA-256-linked audit hash chain | `test_audit_integrity.py::test_audit_chain_tamper_detection` |
+| TH-10 | Information Disclosure | Probing document IDs using different error responses | Return a uniform HTTP 404 for nonexistent or unauthorized documents | `test_document_access.py::test_unpermitted_user_cannot_access_document`; compare responses for both cases in a dedicated test |
+| TH-11 | Information Disclosure | Cross-user document listing exposes private document metadata | Restrict document-list results to documents the requester owns or is authorized to access | `test_document_permissions.py::test_document_list_is_isolated_between_users` — passed; a separate search-isolation test remains outstanding if search is implemented |
+| TH-12 | Information Disclosure | Secrets exposed by health or configuration endpoints | Mask secrets and sensitive configuration values in diagnostic responses | `test_config_health.py::test_config_check_masks_secrets` |
+| TH-13 | Denial of Service | Storage exhaustion through oversized uploads | Enforce the configured upload-size limit while streaming and reject oversized requests | **Not verified:** add a test confirming uploads exceeding 25 MB receive HTTP 413 |
+| TH-14 | Elevation of Privilege | Administrator downloads confidential documents without permission | Require explicit document authorization; administrative privileges must not automatically grant content access | **Not verified:** add an administrator document-download authorization test |
+| TH-15 | Elevation of Privilege | Viewer grants or revokes document access | Restrict permission management to the document owner or another explicitly authorized role | `test_document_permissions.py::test_non_owner_cannot_grant_permission` |
+| TH-16 | Elevation of Privilege | Application database role modifies the schema | Restrict runtime database privileges and separate application access from schema-management privileges | Existing audit-trigger tests cover audit immutability, **not** general DDL privilege separation; add a dedicated privilege test |
+| TH-17 | Malicious Upload | Path traversal through a crafted filename | Generate server-controlled storage keys and prevent client filenames from determining filesystem paths | **Not verified:** add a test confirming crafted filenames cannot escape the storage directory |
+| TH-18 | Malicious Upload | Executable content disguised as a PDF | Validate file content signatures and reject content that fails the supported file-type policy | **Not verified:** add a test confirming an executable disguised as a PDF is rejected |
+| TH-19 | Race Condition | Access continues after permission revocation | Recheck current permissions on each protected request | `test_document_permissions.py::test_revoked_viewer_loses_document_list_access` and `test_document_permissions.py::test_revoked_viewer_cannot_download_document` — passed; download authorization is tested with the storage read mocked |
+| TH-20 | Race Condition | Concurrent audit writes break hash-chain continuity | Serialize audit-chain head reads and inserts using PostgreSQL transaction-level advisory locking | `test_audit_integrity.py::test_audit_chain_concurrency_continuity` |
 
----
+**Verification rule:** A test reference is not proof that a test exists or passes. Confirm the test file, test implementation, and execution result before marking a threat as covered. Tests that are skipped must be recorded as skipped, not passed.
 
 ## 2. Information Leakage Prevention Guidelines
 
-1. **Uniform HTTP 404 Responses**:
-   When a user requests `GET /api/v1/documents/{doc_id}` and either the document does not exist OR the user lacks permission, the response is identically:
-   ```json
-   {
-     "detail": "Document not found or access denied"
-   }
-   ```
-   Status Code: `404 Not Found`.
-2. **Internal Audit Precision**:
-   While the client receives an innocuous 404, the internal audit log captures `result='DENIED'`, `action='DOC_READ'`, `actor_id='...'`, `target_id='...'`, and `denial_reason='UNAUTHORIZED_ACCESS'`.
+### 2.1 Uniform HTTP 404 responses
 
----
+When a user requests a document that either does not exist or is not accessible to them, the API should return the same status and public error message.
+
+Example response:
+
+```json
+{
+  "detail": "Document not found or access denied"
+}
+```
+
+Status code: `404 Not Found`.
+
+Verify this behavior separately for document metadata, download, and any other protected document endpoint. Error-message consistency alone does not guarantee that timing or other response details cannot leak information.
+
+### 2.2 Internal audit precision
+
+Where supported by the endpoint and audit implementation, denied-access events should record the actor, action, target, timestamp, request identifier, and denial reason.
+
+Example event fields:
+
+- `result`: `DENIED`
+- `action`: the relevant document operation, such as `DOC_READ`
+- `actor_id`: authenticated user's identifier, if available
+- `target_id`: requested document identifier, if available
+- `denial_reason`: a specific internal authorization reason
+
+Do not expose sensitive internal denial details to the client. Verify that audit logging is reliable and that failures are monitored rather than silently ignored.
 
 ## 3. Administrative Ownership Transfer Policy
 
-If a document owner leaves the organization or is incapacitated, an administrator can transfer document ownership under the following strict rules:
-1. Target destination owner must exist, be active, and not be the administrator.
-2. The transfer is atomic and changes `documents.owner_id`.
-3. An immutable audit record is created capturing `actor_id` (admin), `old_owner_id`, `new_owner_id`, and `reason`.
-4. **The transfer does NOT grant the administrator access to read or download the document content**.
+If a document owner leaves the organization or becomes unable to manage their documents, an administrator may transfer ownership only through an explicitly authorized and audited workflow.
+
+1. The destination owner must exist, be active, and be different from the administrator performing the transfer.
+2. The ownership change must be atomic.
+3. An immutable audit event must identify the administrator, previous owner, new owner, affected document, timestamp, and transfer reason, subject to the available audit schema.
+4. **Ownership transfer must not automatically grant the administrator permission to read or download the document content.**
+5. The new owner's access must follow the application's documented authorization policy.
+6. The transfer operation must fail safely if the database update or required audit operation cannot be completed.
+
+**Implementation status:** Treat this policy as a requirement until the corresponding endpoint, authorization checks, audit behavior, and automated tests have been verified. Do not imply that an ownership-transfer feature already exists unless confirmed in the codebase.
+
+## 4. Verification Limitations and Outstanding Work
+
+The following areas require additional verification or dedicated tests:
+
+- Cross-user document search isolation.
+- Administrator document-download authorization.
+- Expired JWT rejection.
+- Upload-size enforcement, filename path-traversal protection, and file-signature validation.
+- Equivalent public responses for nonexistent and unauthorized documents.
+- Database runtime-role restrictions beyond audit-table immutability.
+- Audit logging failure monitoring and Windows-compatible storage symlink-escape testing.
+
+Update this matrix whenever tests are added, changed, skipped, or fail. Record actual results and avoid describing unverified security controls as proven.
