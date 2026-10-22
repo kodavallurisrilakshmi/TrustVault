@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.services.audit_service import AuditService
+from unittest.mock import AsyncMock, MagicMock
 
 
 @pytest.mark.asyncio
@@ -243,3 +244,64 @@ async def test_autonomous_denied_audit_failure_is_logged(monkeypatch, caplog):
     assert "Failed to persist denied audit event" in caplog.text
     assert "audit-failure-test" in caplog.text
     assert "simulated audit failure" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_audit_chain_detects_broken_previous_hash(
+    db_session: AsyncSession,
+    monkeypatch,
+):
+    """Verify that the audit verifier detects a broken previous-hash link."""
+    for action in ("LINK_TEST_1", "LINK_TEST_2"):
+        await AuditService.log_event(
+            db=db_session,
+            request_id=str(uuid.uuid4()),
+            actor_ip="127.0.0.1",
+            action=action,
+            target_type="document",
+            result="SUCCESS",
+        )
+        await db_session.commit()
+
+    initial = await AuditService.verify_chain(db_session)
+    assert initial.is_valid is True
+
+    # Load the actual records, then simulate a corrupted link in memory.
+    result = await db_session.execute(
+        select(AuditLog).order_by(AuditLog.timestamp.asc(), AuditLog.id.asc())
+    )
+    records = list(result.scalars().all())
+
+    assert len(records) >= 2
+
+    second = next(
+        record for record in records
+        if record.action == "LINK_TEST_2"
+    )
+    original_prev_hash = second.prev_hash
+    second.prev_hash = "f" * 64
+
+    # Return the simulated records directly so the database cannot refresh
+    # and overwrite the in-memory corruption during verification.
+    mocked_result = MagicMock()
+    mocked_result.scalars.return_value.all.return_value = records
+
+    monkeypatch.setattr(
+        db_session,
+        "execute",
+        AsyncMock(return_value=mocked_result),
+    )
+
+    try:
+        tampered = await AuditService.verify_chain(db_session)
+
+        assert tampered.is_valid is False
+        assert tampered.broken_record_id == second.id
+        assert "Broken prev_hash chain link" in tampered.message
+    finally:
+        second.prev_hash = original_prev_hash
+        monkeypatch.undo()
+        await db_session.rollback()
+
+    restored = await AuditService.verify_chain(db_session)
+    assert restored.is_valid is True
