@@ -1,3 +1,4 @@
+
 import uuid
 
 import pytest
@@ -12,9 +13,7 @@ from app.services.audit_service import AuditService
 async def test_audit_logs_immutability_trigger_blocks_update(
     db_session: AsyncSession,
 ):
-    """
-    Verify that the audit-log trigger blocks UPDATE operations.
-    """
+    """Verify the audit-log trigger blocks UPDATE operations."""
     req_id = str(uuid.uuid4())
     entry = await AuditService.log_event(
         db=db_session,
@@ -25,16 +24,16 @@ async def test_audit_logs_immutability_trigger_blocks_update(
         result="SUCCESS",
     )
     await db_session.commit()
+    entry_id = entry.id
 
     try:
         await db_session.execute(
             text("UPDATE audit_logs SET result = 'ALTERED' WHERE id = :id"),
-            {"id": entry.id},
+            {"id": entry_id},
         )
         await db_session.commit()
 
-        bind = db_session.get_bind()
-        if bind.dialect.name == "postgresql":
+        if db_session.get_bind().dialect.name == "postgresql":
             pytest.fail(
                 "UPDATE on audit_logs succeeded but should have been blocked!"
             )
@@ -45,15 +44,18 @@ async def test_audit_logs_immutability_trigger_blocks_update(
             or "prohibited" in str(exc).lower()
             or "permission denied" in str(exc).lower()
         )
+        await db_session.rollback()
+
+    original_entry = await db_session.get(type(entry), entry_id)
+    assert original_entry is not None
+    assert original_entry.result == "SUCCESS"
 
 
 @pytest.mark.asyncio
 async def test_audit_logs_immutability_trigger_blocks_delete(
     db_session: AsyncSession,
 ):
-    """
-    Verify that the audit-log trigger blocks DELETE operations.
-    """
+    """Verify the audit-log trigger blocks DELETE operations."""
     req_id = str(uuid.uuid4())
     entry = await AuditService.log_event(
         db=db_session,
@@ -64,16 +66,16 @@ async def test_audit_logs_immutability_trigger_blocks_delete(
         result="SUCCESS",
     )
     await db_session.commit()
+    entry_id = entry.id
 
     try:
         await db_session.execute(
             text("DELETE FROM audit_logs WHERE id = :id"),
-            {"id": entry.id},
+            {"id": entry_id},
         )
         await db_session.commit()
 
-        bind = db_session.get_bind()
-        if bind.dialect.name == "postgresql":
+        if db_session.get_bind().dialect.name == "postgresql":
             pytest.fail(
                 "DELETE on audit_logs succeeded but should have been blocked!"
             )
@@ -84,3 +86,8 @@ async def test_audit_logs_immutability_trigger_blocks_delete(
             or "prohibited" in str(exc).lower()
             or "permission denied" in str(exc).lower()
         )
+        await db_session.rollback()
+
+    original_entry = await db_session.get(type(entry), entry_id)
+    assert original_entry is not None
+    assert original_entry.action == "TEST_ACTION_DELETE"
