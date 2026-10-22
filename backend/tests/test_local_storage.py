@@ -67,3 +67,23 @@ def test_storage_rejects_symlink_escape(tmp_path):
     # The storage service must reject the resolved path.
     with pytest.raises(ValueError, match="escapes the vault"):
         storage.read_file(storage_key)
+
+def test_storage_rejects_resolved_path_outside_vault(tmp_path, monkeypatch):
+    vault = tmp_path / "vault"
+    vault.mkdir()
+
+    storage = LocalStorageService(root=vault)
+    storage_key = str(uuid.uuid4())
+    outside_file = tmp_path / "outside.txt"
+
+    original_resolve = type(vault).resolve
+
+    def fake_resolve(path, *args, **kwargs):
+        if path == vault / storage_key[:2] / storage_key:
+            return outside_file
+        return original_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(type(vault), "resolve", fake_resolve)
+
+    with pytest.raises(ValueError, match="escapes the vault"):
+        storage.read_file(storage_key)
