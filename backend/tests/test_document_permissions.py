@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from app.models.document import Document
 from app.models.permission import DocumentPermission
+from app.models.audit_log import AuditLog
 
 
 @pytest.mark.asyncio
@@ -54,6 +55,19 @@ async def test_owner_can_grant_view_permission(
         )
     )
     assert result.scalar_one_or_none() is not None
+    audit_result = await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.action == "DOCUMENT_PERMISSION_GRANTED",
+            AuditLog.target_id == str(document.id),
+            AuditLog.actor_id == test_user_a.id,
+        )
+    )
+    audit_entry = audit_result.scalar_one_or_none()
+
+    assert audit_entry is not None
+    assert audit_entry.result == "SUCCESS"
+    assert audit_entry.metadata_json["recipient_user_id"] == str(test_user_b.id)
+    assert audit_entry.record_hash
 
 
 @pytest.mark.asyncio
@@ -231,8 +245,6 @@ async def test_document_list_is_isolated_between_users(
     assert str(shared_document.id) in ids_b
     assert str(private_document.id) not in ids_b
 @pytest.mark.asyncio
-
-
 async def test_revoked_viewer_loses_document_list_access(
     client,
     db_session,
@@ -289,7 +301,19 @@ async def test_revoked_viewer_loses_document_list_access(
     )
     assert after.status_code == 200
     assert str(document.id) not in {item["id"] for item in after.json()}
+    audit_result = await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.action == "DOCUMENT_PERMISSION_REVOKED",
+            AuditLog.target_id == str(document.id),
+            AuditLog.actor_id == test_user_a.id,
+        )
+    )
+    audit_entry = audit_result.scalar_one_or_none()
 
+    assert audit_entry is not None
+    assert audit_entry.result == "SUCCESS"
+    assert audit_entry.metadata_json["recipient_user_id"] == str(test_user_b.id)
+    assert audit_entry.record_hash
 
 @pytest.mark.asyncio
 async def test_revoked_viewer_cannot_download_document(
@@ -398,3 +422,16 @@ async def test_admin_cannot_download_private_document_without_permission(
 
     assert response.status_code == 404
     assert response.json()["detail"] == "Document not found"
+    audit_result = await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.action == "DOCUMENT_ACCESS_DENIED",
+            AuditLog.target_id == str(document.id),
+            AuditLog.actor_id == test_admin_user.id,
+        )
+    )
+    audit_entry = audit_result.scalar_one_or_none()
+
+    assert audit_entry is not None
+    assert audit_entry.result == "DENIED"
+    assert audit_entry.denial_reason == "NO_CURRENT_PERMISSION"
+    assert audit_entry.record_hash
