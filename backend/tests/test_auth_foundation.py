@@ -192,3 +192,24 @@ async def test_deactivated_account_immediate_revocation(
     # 3. User A makes subsequent request -> MUST BE REJECTED IMMEDIATELY
     post_res = await client.get("/api/v1/auth/me", headers=user_a_headers)
     assert post_res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_expired_jwt_is_rejected(client, test_user_a):
+    """An expired access token must not authenticate a request."""
+    from datetime import timedelta
+    from app.core.security import create_access_token
+
+    expired_token = create_access_token(
+        user_id=str(test_user_a.id),
+        role=test_user_a.role,
+        token_version=test_user_a.token_version,
+        expires_delta=timedelta(seconds=-60),
+    )
+
+    response = await client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {expired_token}"},
+    )
+
+    assert response.status_code == 401

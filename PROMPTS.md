@@ -32,3 +32,23 @@ This log records interactions with the AI assistant during the development of Tr
   2. Pinned dependency requirements and isolated package installations.
   3. Formulated explicit test fixtures with automated negative privilege testing for database least privilege and audit log immutability triggers.
 - **Git Commit**: Initial Git repository initialized (`.git`), pending Phase 1 commit.
+
+### Entry 003: Upload Validation, Authorization Regression Tests, and Security Verification
+
+- **Date**: 2026-10-22
+- **Prompt / Summary**: Strengthen upload validation and verify authentication expiration, administrator document isolation, audit immutability, and database privilege separation.
+- **Actual Output**:
+  - Added uploaded-file content validation for supported file types, including PDF signatures, PNG/JPG signatures, DOCX/XLSX ZIP structure, and UTF-8 text/CSV checks.
+  - Added upload tests for valid text uploads, empty files, oversized uploads, disallowed extensions, filename path-component stripping, and invalid PDF content.
+  - Added regression tests for expired JWT rejection and administrator download denial without document permission.
+  - Verified the full backend test suite: 45 passed, 1 skipped, 4 warnings.
+  - Verified the frontend production build had succeeded in the preceding development checkpoint.
+  - Inspected the production `trustvault` database: Alembic revision `ed28e992c911` is at head; the audit immutability trigger is enabled; the `trustvault_app` role can read and insert audit records but cannot directly update or delete them; it cannot create objects in `public` and is not a member of `trustvault_admin`.
+- **Specific Errors / Discrepancies Discovered**:
+  - The test database `trustvault_test` is cleaned up by the test fixture, so it should not be used to infer the presence of application tables after a test run.
+  - Windows symlink-escape testing remains skipped because the environment lacks the required privilege.
+  - Automated DDL privilege tests, broader file-format validation tests, and additional audit coverage remain outstanding.
+- **Correction / Mitigation**:
+  - Updated the threat-model verification status to reflect the new passing tests and preserve the remaining gaps.
+  - Continued read-only verification of production database configuration; no production schema or privilege changes were made during these checks.
+- **Git Commit**: Pending.

@@ -1,4 +1,4 @@
-
+import zipfile
 import uuid
 import re
 import hashlib
@@ -30,6 +30,51 @@ from app.services.audit_service import AuditService
 from app.storage.local_storage import LocalStorageService
 
 router = APIRouter()
+
+
+def validate_uploaded_content(extension: str, file_path: Path) -> None:
+    """Reject uploads whose contents do not match supported file formats."""
+
+    with file_path.open("rb") as uploaded:
+        header = uploaded.read(1024)
+
+    valid = True
+
+    if extension == "pdf":
+        valid = header.startswith(b"%PDF-")
+
+    elif extension == "png":
+        valid = header.startswith(b"\x89PNG\r\n\x1a\n")
+
+    elif extension == "jpg":
+        valid = header.startswith(b"\xff\xd8\xff")
+
+    elif extension in {"docx", "xlsx"}:
+        try:
+            with zipfile.ZipFile(file_path) as archive:
+                names = set(archive.namelist())
+
+                common_parts = "[Content_Types].xml" in names
+                if extension == "docx":
+                    valid = common_parts and "word/document.xml" in names
+                else:
+                    valid = common_parts and "xl/workbook.xml" in names
+        except (zipfile.BadZipFile, OSError):
+            valid = False
+
+    elif extension in {"txt", "csv"}:
+        try:
+            content = file_path.read_bytes()
+            content.decode("utf-8-sig")
+            valid = b"\x00" not in content
+        except (UnicodeDecodeError, OSError):
+            valid = False
+
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="File contents do not match the allowed file type",
+        )
 
 
 @router.get("", response_model=list[DocumentResponse])
@@ -165,6 +210,7 @@ async def upload_document(
                 detail="Empty files are not allowed",
             )
 
+        validate_uploaded_content(extension, file_path)
         document = Document(
             id=uuid.uuid4(),
             title=document_title,

@@ -7,7 +7,7 @@ This document describes TrustVault's threat model using the **STRIDE** methodolo
 | Threat ID | Category | Attack Scenario | TrustVault Mitigation | Automated Test / Verification Status |
 |---|---|---|---|---|
 | TH-01 | Spoofing | Forged JWT with altered `sub` claim | JWT signature verification; invalid tokens return HTTP 401 | `test_auth_foundation.py::test_tampered_jwt_signature_rejected` |
-| TH-02 | Spoofing | Replaying an expired authentication token | JWT expiration (`exp`) validation | **Coverage gap:** add a dedicated expired-token test; invalid-credentials testing alone does not prove expiration handling |
+| TH-02 | Spoofing | Replaying an expired authentication token | JWT expiration (`exp`) validation | `test_auth_foundation.py::test_expired_jwt_is_rejected` — passed in the full suite |
 | TH-03 | Spoofing | Replaying a logged-out or revoked session | Compare the JWT `token_version` with the current database value on authenticated requests | `test_auth_foundation.py::test_token_version_immediate_revocation` |
 | TH-04 | Spoofing | Deactivated user accessing endpoints | Check account activation status during authentication | `test_auth_foundation.py::test_deactivated_account_immediate_revocation` |
 | TH-05 | Tampering | BOLA / IDOR document access | Enforce server-side document authorization and return a non-disclosing HTTP 404 | `test_document_access.py::test_unpermitted_user_cannot_access_document` |
@@ -18,12 +18,12 @@ This document describes TrustVault's threat model using the **STRIDE** methodolo
 | TH-10 | Information Disclosure | Probing document IDs using different error responses | Return a uniform HTTP 404 for nonexistent or unauthorized documents | `test_document_access.py::test_unpermitted_user_cannot_access_document`; compare responses for both cases in a dedicated test |
 | TH-11 | Information Disclosure | Cross-user document listing exposes private document metadata | Restrict document-list results to documents the requester owns or is authorized to access | `test_document_permissions.py::test_document_list_is_isolated_between_users` — passed; a separate search-isolation test remains outstanding if search is implemented |
 | TH-12 | Information Disclosure | Secrets exposed by health or configuration endpoints | Mask secrets and sensitive configuration values in diagnostic responses | `test_config_health.py::test_config_check_masks_secrets` |
-| TH-13 | Denial of Service | Storage exhaustion through oversized uploads | Enforce the configured upload-size limit while streaming and reject oversized requests | **Not verified:** add a test confirming uploads exceeding 25 MB receive HTTP 413 |
-| TH-14 | Elevation of Privilege | Administrator downloads confidential documents without permission | Require explicit document authorization; administrative privileges must not automatically grant content access | **Not verified:** add an administrator document-download authorization test |
+| TH-13 | Denial of Service | Storage exhaustion through oversized uploads | Enforce the configured upload-size limit while streaming and reject oversized requests | `tests/test_document_upload.py::test_oversized_upload_is_rejected` — passed; test uses an 8-byte limit to exercise the rejection path |
+| TH-14 | Elevation of Privilege | Administrator downloads confidential documents without permission | Require explicit document authorization; administrative privileges must not automatically grant content access | `test_document_permissions.py::test_admin_cannot_download_private_document_without_permission` — passed in the full suite |
 | TH-15 | Elevation of Privilege | Viewer grants or revokes document access | Restrict permission management to the document owner or another explicitly authorized role | `test_document_permissions.py::test_non_owner_cannot_grant_permission` |
 | TH-16 | Elevation of Privilege | Application database role modifies the schema | Restrict runtime database privileges and separate application access from schema-management privileges | Existing audit-trigger tests cover audit immutability, **not** general DDL privilege separation; add a dedicated privilege test |
-| TH-17 | Malicious Upload | Path traversal through a crafted filename | Generate server-controlled storage keys and prevent client filenames from determining filesystem paths | **Not verified:** add a test confirming crafted filenames cannot escape the storage directory |
-| TH-18 | Malicious Upload | Executable content disguised as a PDF | Validate file content signatures and reject content that fails the supported file-type policy | **Not verified:** add a test confirming an executable disguised as a PDF is rejected |
+| TH-17 | Malicious Upload | Path traversal through a crafted filename | Generate server-controlled storage keys and prevent client filenames from determining filesystem paths | `tests/test_document_upload.py::test_path_components_are_removed_from_uploaded_filename` — passed; storage containment is also enforced by `LocalStorageService` |
+| TH-18 | Malicious Upload | File content does not match its declared extension | Check supported file-format signatures or structure and reject mismatched content | `tests/test_document_upload.py::test_pdf_with_non_pdf_contents_is_rejected` — passed; other format-validation paths need dedicated tests |
 | TH-19 | Race Condition | Access continues after permission revocation | Recheck current permissions on each protected request | `test_document_permissions.py::test_revoked_viewer_loses_document_list_access` and `test_document_permissions.py::test_revoked_viewer_cannot_download_document` — passed; download authorization is tested with the storage read mocked |
 | TH-20 | Race Condition | Concurrent audit writes break hash-chain continuity | Serialize audit-chain head reads and inserts using PostgreSQL transaction-level advisory locking | `test_audit_integrity.py::test_audit_chain_concurrency_continuity` |
 
@@ -78,12 +78,16 @@ If a document owner leaves the organization or becomes unable to manage their do
 
 The following areas require additional verification or dedicated tests:
 
-- Cross-user document search isolation.
-- Administrator document-download authorization.
-- Expired JWT rejection.
-- Upload-size enforcement, filename path-traversal protection, and file-signature validation.
-- Equivalent public responses for nonexistent and unauthorized documents.
-- Database runtime-role restrictions beyond audit-table immutability.
-- Audit logging failure monitoring and Windows-compatible storage symlink-escape testing.
+- Cross-user document search isolation, if search is implemented.
+- Upload-size enforcement: the rejection path is tested with a reduced limit; the configured production limit has not been tested with a full-size upload.
+- Filename path-component stripping is tested; Windows-compatible storage symlink-escape testing remains skipped because the current environment lacks the required privilege.
+- PDF content-signature rejection is tested; dedicated tests for PNG, JPG, DOCX, XLSX, TXT, and CSV validation remain outstanding.
+- Equivalent public responses for nonexistent and unauthorized documents across all protected endpoints.
+- Automated tests proving runtime database-role restrictions beyond audit-table immutability, including DDL restrictions.
+- Audit logging failure monitoring and document-specific audit coverage.
+- Production audit-chain resilience against privileged database or host administrators; external immutable log anchoring is recommended for production.
+- Administrative ownership-transfer workflow, if required, until its implementation and authorization tests are verified.
+
+The expired-JWT rejection and administrator-without-permission download tests have been added and passed in the full backend test suite.
 
 Update this matrix whenever tests are added, changed, skipped, or fail. Record actual results and avoid describing unverified security controls as proven.

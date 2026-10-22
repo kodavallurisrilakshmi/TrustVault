@@ -354,3 +354,47 @@ async def test_revoked_viewer_cannot_download_document(
     after = await client.get(download_url, headers=user_b_headers)
     assert after.status_code == 404
     assert after.json()["detail"] == "Document not found"
+
+
+@pytest.mark.asyncio
+async def test_admin_cannot_download_private_document_without_permission(
+    client,
+    db_session,
+    test_user_a,
+    test_admin_user,
+    admin_headers,
+    monkeypatch,
+):
+    from app.api.v1.endpoints.documents import LocalStorageService
+
+    document = Document(
+        id=uuid.uuid4(),
+        title="Administrator Isolation Test",
+        description=None,
+        category="legal",
+        owner_id=test_user_a.id,
+        storage_key=f"test/{uuid.uuid4().hex}",
+        original_filename="private.txt",
+        file_size_bytes=11,
+        mime_type="text/plain",
+        content_sha256="a" * 64,
+    )
+    db_session.add(document)
+    await db_session.commit()
+
+    def fail_if_file_is_read(self, storage_key):
+        pytest.fail("Storage must not be read before authorization")
+
+    monkeypatch.setattr(
+        LocalStorageService,
+        "read_file",
+        fail_if_file_is_read,
+    )
+
+    response = await client.get(
+        f"/api/v1/documents/{document.id}/download",
+        headers=admin_headers,
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Document not found"
