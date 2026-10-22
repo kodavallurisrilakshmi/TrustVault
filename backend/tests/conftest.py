@@ -5,6 +5,7 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 # Ensure environment uses test configurations
@@ -28,7 +29,21 @@ _postgres_test_url = settings.TEST_DATABASE_URL
 _sqlite_test_url = "sqlite+aiosqlite:///:memory:"
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", _postgres_test_url)
+# Safety guard: never let the test fixture drop production tables.
+_test_url = make_url(TEST_DATABASE_URL)
 
+if _test_url.get_backend_name() == "postgresql":
+    if _test_url.database != "trustvault_test":
+        raise RuntimeError(
+            "Unsafe test database configuration: PostgreSQL tests must use "
+            "'trustvault_test'. Refusing to initialize or drop tables."
+        )
+
+    if _test_url.username != "trustvault_app":
+        raise RuntimeError(
+            "Unsafe test database configuration: PostgreSQL tests must use "
+            "'trustvault_app'. Refusing to initialize or drop tables."
+        )
 test_engine = create_async_engine(
     TEST_DATABASE_URL,
     echo=False,
