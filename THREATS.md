@@ -77,17 +77,15 @@ If a document owner leaves the organization or becomes unable to manage their do
 ## 4. Verification Limitations and Outstanding Work
 
 The following areas require additional verification or dedicated tests:
-
 - Cross-user document search isolation, if search is implemented.
-- Upload-size enforcement: the rejection path is tested with a reduced limit; the configured production limit has not been tested with a full-size upload.
-- Filename path-component stripping is tested; Windows-compatible storage symlink-escape testing remains skipped because the current environment lacks the required privilege.
-- PDF content-signature rejection is tested; dedicated tests for PNG, JPG, DOCX, XLSX, TXT, and CSV validation remain outstanding.
+- Upload-size enforcement: the oversized-upload rejection path is tested with a reduced limit; a full-size upload at the configured 25 MiB limit has not been tested.
+- Filename path-component stripping is tested. Windows-compatible storage symlink-escape testing remains skipped because the current environment lacks the required privilege.
+- Content-validation tests now cover PDF signatures, PNG/JPG signatures, DOCX/XLSX ZIP structure, and UTF-8 TXT/CSV content. These are lightweight validation checks, not full file-format parsing, malware scanning, or a guarantee that uploaded files are safe.
 - Equivalent public responses for nonexistent and unauthorized documents across all protected endpoints.
 - Automated tests proving runtime database-role restrictions beyond audit-table immutability, including DDL restrictions.
-- Audit logging failure monitoring and document-specific audit coverage.
+- Audit logging failure monitoring and broader document-specific audit coverage.
 - Production audit-chain resilience against privileged database or host administrators; external immutable log anchoring is recommended for production.
-- Administrative ownership-transfer workflow, if required, until its implementation and authorization tests are verified.
-
+- Administrative ownership-transfer workflow, if required, until its implementation, authorization checks, audit behavior, and automated tests are verified.
 The expired-JWT rejection and administrator-without-permission download tests have been added and passed in the full backend test suite.
 
 Update this matrix whenever tests are added, changed, skipped, or fail. Record actual results and avoid describing unverified security controls as proven.

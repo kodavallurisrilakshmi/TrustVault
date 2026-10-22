@@ -52,3 +52,23 @@ This log records interactions with the AI assistant during the development of Tr
   - Updated the threat-model verification status to reflect the new passing tests and preserve the remaining gaps.
   - Continued read-only verification of production database configuration; no production schema or privilege changes were made during these checks.
 - **Git Commit**: Pending.
+
+### Entry 004: Expanded Upload Validation Tests and Backend Verification
+
+- **Date**: 2026-10-22
+- **Prompt / Summary**: Expand supported-file upload validation tests and rerun the backend test suite; confirm the frontend production build.
+- **Actual Output**:
+  - Expanded upload tests to cover accepted PNG/JPG signatures, valid UTF-8 TXT/CSV content, minimal DOCX/XLSX ZIP structures, and rejection of invalid signatures, encodings, and Office ZIP structures.
+  - Focused upload tests: 18 passed.
+  - Full backend test suite: 57 passed, 1 skipped, 4 warnings.
+  - The skipped test concerns Windows symlink creation, which requires a privilege unavailable in the current environment.
+  - Frontend production build completed successfully using `npm run build`.
+  - Existing read-only production database checks confirmed the audit immutability trigger and the previously verified `trustvault_app` privilege restrictions. No production database changes were made during these checks.
+- **Specific Errors / Discrepancies Discovered**:
+  - Windows symlink-escape testing remains unverified.
+  - File-content checks are lightweight signature, encoding, and ZIP-structure checks; full format parsing and malware scanning are not implemented by these checks.
+  - The full configured upload-size boundary, broader audit failure monitoring, consistent authorization responses across all protected endpoints, and automated DDL privilege checks remain outstanding.
+- **Correction / Mitigation**:
+  - Added passing tests for the additional supported file formats and updated the threat-model limitations to reflect the new coverage without overstating the security guarantees.
+  - Kept the skipped test and remaining security gaps documented.
+- **Git Commit**: Pending.

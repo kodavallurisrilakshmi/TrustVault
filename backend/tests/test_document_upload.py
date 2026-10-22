@@ -92,3 +92,114 @@ async def test_pdf_with_non_pdf_contents_is_rejected(
     assert response.json()["detail"] == (
         "File contents do not match the allowed file type"
     )
+
+
+import io
+import zipfile
+
+import pytest
+
+
+def make_minimal_office_file(extension: str) -> bytes:
+    """Build a minimal ZIP fixture with the required Office document parts."""
+    output = io.BytesIO()
+
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types></Types>")
+
+        if extension == "docx":
+            archive.writestr("word/document.xml", "<document></document>")
+        else:
+            archive.writestr("xl/workbook.xml", "<workbook></workbook>")
+
+    return output.getvalue()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("filename", "content", "content_type"),
+    [
+        ("image.png", b"\x89PNG\r\n\x1a\n" + b"test-image-data", "image/png"),
+        ("image.jpg", b"\xff\xd8\xff" + b"test-image-data", "image/jpeg"),
+        ("notes.txt", b"Valid UTF-8 text", "text/plain"),
+        ("data.csv", b"name,score\nAlice,90\n", "text/csv"),
+    ],
+)
+async def test_supported_signature_and_text_uploads_are_accepted(
+    client, user_a_headers, filename, content, content_type
+):
+    response = await client.post(
+        "/api/v1/documents",
+        headers=user_a_headers,
+        files={"file": (filename, content, content_type)},
+        data={"title": "Format validation test", "category": "general"},
+    )
+
+    assert response.status_code == 201, response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("filename", "content", "content_type"),
+    [
+        ("image.png", b"not a PNG", "image/png"),
+        ("image.jpg", b"not a JPEG", "image/jpeg"),
+        ("notes.txt", b"\xff\xfe\xfa", "text/plain"),
+        ("data.csv", b"name,score\n\xff\xfe", "text/csv"),
+    ],
+)
+async def test_invalid_signature_or_text_encoding_is_rejected(
+    client, user_a_headers, filename, content, content_type
+):
+    response = await client.post(
+        "/api/v1/documents",
+        headers=user_a_headers,
+        files={"file": (filename, content, content_type)},
+        data={"title": "Invalid format test", "category": "general"},
+    )
+
+    assert response.status_code == 415, response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extension", ["docx", "xlsx"])
+async def test_minimal_office_zip_structure_is_accepted(
+    client, user_a_headers, extension
+):
+    content = make_minimal_office_file(extension)
+
+    response = await client.post(
+        "/api/v1/documents",
+        headers=user_a_headers,
+        files={
+            "file": (
+                f"sample.{extension}",
+                content,
+                "application/octet-stream",
+            )
+        },
+        data={"title": "Office format test", "category": "general"},
+    )
+
+    assert response.status_code == 201, response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extension", ["docx", "xlsx"])
+async def test_invalid_office_zip_structure_is_rejected(
+    client, user_a_headers, extension
+):
+    response = await client.post(
+        "/api/v1/documents",
+        headers=user_a_headers,
+        files={
+            "file": (
+                f"fake.{extension}",
+                b"This is not a ZIP Office document",
+                "application/octet-stream",
+            )
+        },
+        data={"title": "Invalid Office format test", "category": "general"},
+    )
+
+    assert response.status_code == 415, response.text
