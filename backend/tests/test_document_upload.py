@@ -203,3 +203,43 @@ async def test_invalid_office_zip_structure_is_rejected(
     )
 
     assert response.status_code == 415, response.text
+
+@pytest.mark.asyncio
+async def test_upload_database_failure_cleans_up_stored_file(
+    client, user_a_headers, monkeypatch, tmp_path
+):
+    from app.api.v1.endpoints import documents
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    storage = documents.LocalStorageService(root=tmp_path)
+    monkeypatch.setattr(
+        documents,
+        "LocalStorageService",
+        lambda: storage,
+    )
+
+    async def fail_commit(self):
+        raise RuntimeError("Simulated database commit failure")
+
+    monkeypatch.setattr(AsyncSession, "commit", fail_commit)
+
+    with pytest.raises(RuntimeError, match="Simulated database commit failure"):
+        await client.post(
+            "/api/v1/documents",
+            headers=user_a_headers,
+            files={
+                "file": (
+                    "cleanup.txt",
+                    b"Test upload cleanup",
+                    "text/plain",
+                )
+            },
+            data={"title": "Cleanup test", "category": "general"},
+        )
+
+    remaining_files = [
+        path for path in tmp_path.rglob("*") if path.is_file()
+    ]
+    assert remaining_files == [], (
+        f"Upload files were not cleaned up: {remaining_files}"
+    )

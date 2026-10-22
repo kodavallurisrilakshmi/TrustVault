@@ -203,3 +203,43 @@ async def test_audit_chain_concurrency_continuity():
         verification = await AuditService.verify_chain(session)
 
     assert verification.is_valid is True
+
+
+
+
+@pytest.mark.asyncio
+async def test_autonomous_denied_audit_failure_is_logged(monkeypatch, caplog):
+    """Verify that denied-audit persistence failures are logged."""
+    import logging
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.services import audit_service
+
+    mock_session = MagicMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=False)
+    mock_session.rollback = AsyncMock()
+
+    monkeypatch.setattr(
+        audit_service,
+        "async_session_factory",
+        lambda: mock_session,
+    )
+    monkeypatch.setattr(
+        AuditService,
+        "log_event",
+        AsyncMock(side_effect=RuntimeError("simulated audit failure")),
+    )
+
+    with caplog.at_level(logging.ERROR, logger="app.services.audit_service"):
+        await AuditService.log_autonomous_denied(
+            request_id="audit-failure-test",
+            actor_ip="127.0.0.1",
+            action="TEST_DENIED_ACTION",
+            target_type="document",
+        )
+
+    mock_session.rollback.assert_awaited_once()
+    assert "Failed to persist denied audit event" in caplog.text
+    assert "audit-failure-test" in caplog.text
+    assert "simulated audit failure" in caplog.text

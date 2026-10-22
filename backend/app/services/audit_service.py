@@ -1,4 +1,4 @@
-
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, Any, Dict, List
@@ -10,7 +10,7 @@ from app.models.audit_log import AuditLog
 from app.schemas.audit import AuditChainVerificationResult
 from app.core.database import async_session_factory
 
-
+logger = logging.getLogger(__name__)
 # Global advisory lock ID for serializing audit-chain writes in PostgreSQL.
 AUDIT_CHAIN_ADVISORY_LOCK_ID = 748192837
 
@@ -141,10 +141,12 @@ class AuditService:
                 await session.commit()
             except Exception:
                 await session.rollback()
-                # Do not expose internal audit errors to the caller.
-                # A production deployment should separately monitor and
-                # alert on audit-write failures.
-                pass
+                logger.exception(
+                    "Failed to persist denied audit event "
+                    "(request_id=%s, action=%s)",
+                    request_id,
+                    action,
+                )
 
     @staticmethod
     async def verify_chain(
