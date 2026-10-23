@@ -109,3 +109,24 @@ This log records interactions with the AI assistant during the development of Tr
   - Four Pydantic v2 deprecation warnings remain.
   - These tests do not establish protection against a privileged database or host administrator rewriting audit history; external immutable audit-log anchoring remains recommended for production.
 - **Git Commit**: Pending review and verification.
+
+### Entry 007: Final Sharing, Revocation, and Audit Verification
+
+- **Date**: 2026-10-23
+- **Prompt / Summary**: Verify the document-sharing workflow, immediate permission revocation, PostgreSQL audit-log immutability trigger, and live cryptographic audit-chain verification.
+- **Actual Output**:
+  - Manually verified that an authorized second account could access a shared document.
+  - Revoked that account's access and confirmed that subsequent access was denied.
+  - Confirmed that the PostgreSQL trigger `trg_audit_logs_immutable` is enabled on `public.audit_logs` and runs before UPDATE or DELETE operations.
+  - Live audit verification endpoint returned HTTP 200, `is_valid: true`, and reported 101 verified audit records with no broken record reported.
+  - Full backend test suite: 71 passed, 1 skipped, 4 warnings.
+  - Frontend production build completed successfully.
+  - Git working tree was clean before this documentation update; latest commit at that point was `4b839e3` (`Handle download audit failures safely`).
+- **Known Limitations**:
+  - Windows symlink-escape test remains skipped because the environment lacks the required privilege.
+  - Four Pydantic v2 deprecation warnings remain.
+  - Manual sharing and revocation checks do not replace automated regression tests for every protected endpoint.
+  - A valid hash chain does not prove that every relevant action was logged or prevent a privileged database or host administrator from rewriting audit history.
+  - External immutable audit-log anchoring remains recommended for production.
+  - Other outstanding items documented in `THREATS.md` and `SECURITY.md` remain open until independently verified.
+- **Git Commit**: Pending documentation update and final verification.

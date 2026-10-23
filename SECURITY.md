@@ -25,7 +25,7 @@ Our core security architecture is governed by five mandatory pillars:
 
 If you discover a potential security flaw in TrustVault, please practice coordinated vulnerability disclosure:
 
-1. **Email**: A monitored security contact has not yet been configured. `security@trustvault.local` is a development placeholder, not a verified public reporting address. Replace it before any public release..
+1. **Email**: A monitored security contact has not yet been configured. `security@trustvault.local` is a development placeholder, not a verified public reporting address. Replace it before any public release.
 2. **Details to Include**:
    - Attack vector description and STRIDE classification.
    - Proof-of-concept (PoC) script or HTTP request sequence.
