@@ -1,5 +1,15 @@
 import pytest
 
+@pytest.mark.asyncio
+async def test_unauthenticated_upload_is_rejected(client):
+    response = await client.post(
+        "/api/v1/documents",
+        files={"file": ("notes.txt", b"Private test document", "text/plain")},
+        data={"title": "Unauthenticated upload", "category": "general"},
+    )
+
+    assert response.status_code == 401
+
 
 @pytest.mark.asyncio
 async def test_valid_text_upload_succeeds(client, user_a_headers):
