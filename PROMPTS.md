@@ -139,7 +139,7 @@ This log records interactions with the AI assistant during the development of Tr
   - Reran `test_storage_rejects_symlink_escape`; result: 1 passed.
   - Added `test_unauthenticated_upload_is_rejected`; unauthenticated upload returns HTTP 401.
   - Upload test module: 21 passed, 4 warnings.
-  - Full backend test suite: 73 passed, 0 skipped, 4 warnings in 4.34 seconds.
+  - Full backend test suite: 73 passed, 0 skipped, 4 warnings in 5.34 seconds (latest verification, 2026-10-23).
   - Latest test commit: `66f45af` (Test unauthenticated document upload rejection).
 - **Known Limitations**:
   - Four Pydantic v2 deprecation warnings remain.
