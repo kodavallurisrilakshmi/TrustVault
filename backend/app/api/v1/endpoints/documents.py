@@ -1,7 +1,9 @@
+
 import zipfile
 import uuid
 import re
 import hashlib
+import logging
 from pathlib import Path
 
 from fastapi import (
@@ -29,6 +31,9 @@ from app.schemas.permission import PermissionGrantRequest, PermissionResponse
 from app.services.audit_service import AuditService
 from app.storage.local_storage import LocalStorageService
 
+
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
@@ -55,10 +60,12 @@ def validate_uploaded_content(extension: str, file_path: Path) -> None:
                 names = set(archive.namelist())
 
                 common_parts = "[Content_Types].xml" in names
+
                 if extension == "docx":
                     valid = common_parts and "word/document.xml" in names
                 else:
                     valid = common_parts and "xl/workbook.xml" in names
+
         except (zipfile.BadZipFile, OSError):
             valid = False
 
@@ -67,6 +74,7 @@ def validate_uploaded_content(extension: str, file_path: Path) -> None:
             content = file_path.read_bytes()
             content.decode("utf-8-sig")
             valid = b"\x00" not in content
+
         except (UnicodeDecodeError, OSError):
             valid = False
 
@@ -107,7 +115,6 @@ async def list_documents(
     )
 
     return result.scalars().all()
-
 
 
 @router.post(
@@ -211,6 +218,7 @@ async def upload_document(
             )
 
         validate_uploaded_content(extension, file_path)
+
         document = Document(
             id=uuid.uuid4(),
             title=document_title,
@@ -256,7 +264,12 @@ async def upload_document(
         await db.rollback()
 
         if storage_key is not None:
-            storage.delete_file(storage_key)
+            try:
+                storage.delete_file(storage_key)
+            except Exception:
+                logger.exception(
+                    "Failed to clean up storage file after upload failure"
+                )
 
         raise
 
@@ -333,28 +346,43 @@ async def grant_document_permission(
         permission_level=payload.permission_level,
         granted_by=current_user.id,
     )
+
     db.add(permission)
 
     actor_ip = request.client.host if request.client else "127.0.0.1"
 
-    await AuditService.log_event(
-        db=db,
-        request_id=request_id,
-        actor_ip=actor_ip,
-        action="DOCUMENT_PERMISSION_GRANTED",
-        target_type="document",
-        target_id=str(document_id),
-        result="SUCCESS",
-        actor_id=current_user.id,
-        actor_email=current_user.email,
-        user_agent=request.headers.get("user-agent"),
-        metadata_json={
-            "recipient_user_id": str(target_user.id),
-            "permission_level": payload.permission_level,
-        },
-    )
+    try:
+        await AuditService.log_event(
+            db=db,
+            request_id=request_id,
+            actor_ip=actor_ip,
+            action="DOCUMENT_PERMISSION_GRANTED",
+            target_type="document",
+            target_id=str(document_id),
+            result="SUCCESS",
+            actor_id=current_user.id,
+            actor_email=current_user.email,
+            user_agent=request.headers.get("user-agent"),
+            metadata_json={
+                "recipient_user_id": str(payload.user_id),
+                "permission_level": payload.permission_level,
+            },
+        )
 
-    await db.commit()
+        await db.commit()
+
+    except Exception as exc:
+        await db.rollback()
+
+        logger.exception(
+            "Failed to grant document permission and record audit event"
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to grant permission",
+        ) from exc
+
     await db.refresh(permission)
 
     return permission
@@ -400,28 +428,42 @@ async def revoke_document_permission(
         )
 
     old_level = permission.permission_level
+
     await db.delete(permission)
 
     actor_ip = request.client.host if request.client else "127.0.0.1"
 
-    await AuditService.log_event(
-        db=db,
-        request_id=request_id,
-        actor_ip=actor_ip,
-        action="DOCUMENT_PERMISSION_REVOKED",
-        target_type="document",
-        target_id=str(document_id),
-        result="SUCCESS",
-        actor_id=current_user.id,
-        actor_email=current_user.email,
-        user_agent=request.headers.get("user-agent"),
-        metadata_json={
-            "recipient_user_id": str(user_id),
-            "revoked_permission_level": old_level,
-        },
-    )
+    try:
+        await AuditService.log_event(
+            db=db,
+            request_id=request_id,
+            actor_ip=actor_ip,
+            action="DOCUMENT_PERMISSION_REVOKED",
+            target_type="document",
+            target_id=str(document_id),
+            result="SUCCESS",
+            actor_id=current_user.id,
+            actor_email=current_user.email,
+            user_agent=request.headers.get("user-agent"),
+            metadata_json={
+                "recipient_user_id": str(user_id),
+                "revoked_permission_level": old_level,
+            },
+        )
 
-    await db.commit()
+        await db.commit()
+
+    except Exception as exc:
+        await db.rollback()
+
+        logger.exception(
+            "Failed to revoke document permission and record audit event"
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to revoke permission",
+        ) from exc
 
     return {
         "message": "Document access revoked successfully",
@@ -491,6 +533,7 @@ async def download_document(
             denial_reason="NO_CURRENT_PERMISSION",
             metadata_json={},
         )
+
         await db.commit()
 
         raise HTTPException(
@@ -503,6 +546,7 @@ async def download_document(
 
     try:
         content = storage.read_file(document.storage_key)
+
     except FileNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -529,6 +573,7 @@ async def download_document(
             "content_sha256": document.content_sha256,
         },
     )
+
     await db.commit()
 
     # Prevent filename characters from injecting response headers.
