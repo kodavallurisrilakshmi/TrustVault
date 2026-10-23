@@ -1,4 +1,5 @@
 from typing import List
+from urllib.parse import unquote, urlparse
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -16,8 +17,24 @@ class Settings(BaseSettings):
         default="development",
         description="development | testing | production",
     )
+
+    @field_validator("APP_ENV")
+    @classmethod
+    def validate_app_env(cls, value: str) -> str:
+        value = value.strip().lower()
+
+        allowed_environments = {"development", "testing", "production"}
+        if value not in allowed_environments:
+            raise ValueError(
+                "APP_ENV must be development, testing, or production"
+            )
+
+        return value
+
     LOG_LEVEL: str = "INFO"
-    CORS_ORIGINS: str = "http://localhost:5173,http://127.0.0.1:5173"
+    CORS_ORIGINS: str = (
+        "http://localhost:5173,http://127.0.0.1:5173"
+    )
 
     # Security & Cryptography
     SECRET_KEY: str = Field(
@@ -107,13 +124,12 @@ class Settings(BaseSettings):
         if self.APP_ENV.strip().lower() != "production":
             return self
 
+        # Validate production database credentials first.
         database_urls = [
             self.DATABASE_ADMIN_URL,
             self.DATABASE_ADMIN_SYNC_URL,
             self.DATABASE_APP_URL,
             self.DATABASE_APP_SYNC_URL,
-            self.TEST_DATABASE_URL,
-            self.TEST_DATABASE_ADMIN_URL,
         ]
 
         placeholder_credentials = (
@@ -125,9 +141,30 @@ class Settings(BaseSettings):
         )
 
         for url in database_urls:
-            if any(value in url.lower() for value in placeholder_credentials):
+            parsed_url = urlparse(url)
+            username = unquote(parsed_url.username or "").lower()
+            password = unquote(parsed_url.password or "").lower()
+
+            if any(
+                value in username or value in password
+                for value in placeholder_credentials
+            ):
                 raise ValueError(
                     "Production database URLs must not use placeholder credentials"
+                )
+
+        # Production frontend origins must use HTTPS.
+        for origin in self.cors_origins_list:
+            parsed_origin = urlparse(origin)
+            hostname = (parsed_origin.hostname or "").lower()
+
+            if (
+                parsed_origin.scheme != "https"
+                or not hostname
+                or hostname in {"localhost", "127.0.0.1", "::1"}
+            ):
+                raise ValueError(
+                    "Production CORS origins must use HTTPS and must not use localhost"
                 )
 
         return self

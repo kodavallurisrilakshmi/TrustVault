@@ -94,3 +94,49 @@ def test_production_rejects_weak_secret_key():
             APP_ENV="production",
             SECRET_KEY="this-is-a-weak-key-without-insecure",
         )
+
+
+def test_production_rejects_invalid_environment_name():
+    """Unknown environment names should not silently select a configuration."""
+    with pytest.raises(ValueError):
+        Settings(
+            APP_ENV="prodution",
+            SECRET_KEY="a-development-secret-key-with-more-than-32-chars",
+        )
+
+
+def test_production_requires_explicit_non_localhost_cors_origins():
+    """Production must reject localhost frontend origins specifically."""
+    with pytest.raises(
+        ValueError,
+        match="Production CORS origins must use HTTPS and must not use localhost",
+    ):
+        Settings(
+            APP_ENV="production",
+            SECRET_KEY="a-strong-production-secret-key-with-more-than-32-chars",
+            CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173",
+            DATABASE_ADMIN_URL="postgresql+asyncpg://admin:real-password@db.example.com:5432/trustvault",
+            DATABASE_ADMIN_SYNC_URL="postgresql+psycopg://admin:real-password@db.example.com:5432/trustvault",
+            DATABASE_APP_URL="postgresql+asyncpg://app:real-password@db.example.com:5432/trustvault",
+            DATABASE_APP_SYNC_URL="postgresql+psycopg://app:real-password@db.example.com:5432/trustvault",
+            TEST_DATABASE_URL="postgresql+asyncpg://app:real-password@localhost:5432/trustvault_test",
+            TEST_DATABASE_ADMIN_URL="postgresql+asyncpg://admin:real-password@localhost:5432/trustvault_test",
+        )
+
+
+
+def test_production_does_not_require_test_database_credentials():
+    """Production validation should not depend on test database credentials."""
+    config = Settings(
+        APP_ENV="production",
+        SECRET_KEY="a-strong-production-secret-key-with-more-than-32-chars",
+        CORS_ORIGINS="https://trustvault.example.com",
+        DATABASE_ADMIN_URL="postgresql+asyncpg://admin:real-password@db.example.com:5432/trustvault",
+        DATABASE_ADMIN_SYNC_URL="postgresql+psycopg://admin:real-password@db.example.com:5432/trustvault",
+        DATABASE_APP_URL="postgresql+asyncpg://app:real-password@db.example.com:5432/trustvault",
+        DATABASE_APP_SYNC_URL="postgresql+psycopg://app:real-password@db.example.com:5432/trustvault",
+        TEST_DATABASE_URL="postgresql+asyncpg://app:app_password_change_me@localhost:5432/trustvault_test",
+        TEST_DATABASE_ADMIN_URL="postgresql+asyncpg://admin:admin_password_change_me@localhost:5432/trustvault_test",
+    )
+
+    assert config.APP_ENV == "production"
