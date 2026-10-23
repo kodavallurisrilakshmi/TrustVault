@@ -626,3 +626,46 @@ async def test_permission_revoke_rolls_back_when_audit_fails(
 
     assert remaining_permission is not None
     assert remaining_permission.permission_level == "view"
+
+
+@pytest.mark.asyncio
+async def test_download_hides_whether_document_exists(
+    client,
+    db_session,
+    test_user_a,
+    user_b_headers,
+):
+    document_id = uuid.uuid4()
+
+    document = Document(
+        id=document_id,
+        title="Private Document",
+        description=None,
+        category="legal",
+        owner_id=test_user_a.id,
+        storage_key=f"test/{uuid.uuid4().hex}",
+        original_filename="private.pdf",
+        file_size_bytes=100,
+        mime_type="application/pdf",
+        content_sha256="a" * 64,
+    )
+    db_session.add(document)
+    await db_session.commit()
+
+    # User B is not authorized to access User A's document.
+    unauthorized_response = await client.get(
+        f"/api/v1/documents/{document_id}/download",
+        headers=user_b_headers,
+    )
+
+    # This document ID does not exist.
+    nonexistent_response = await client.get(
+        f"/api/v1/documents/{uuid.uuid4()}/download",
+        headers=user_b_headers,
+    )
+
+    assert unauthorized_response.status_code == 404
+    assert nonexistent_response.status_code == 404
+
+    assert unauthorized_response.json()["detail"] == "Document not found"
+    assert nonexistent_response.json()["detail"] == "Document not found"

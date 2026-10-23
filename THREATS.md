@@ -15,7 +15,7 @@ This document describes TrustVault's threat model using the **STRIDE** methodolo
 | TH-07 | Tampering | Modifying or deleting audit records through SQL | PostgreSQL triggers prevent audit-record updates and deletions | `test_db_privilege_separation.py::test_audit_logs_immutability_trigger_blocks_update` |
 | TH-08 | Repudiation | Actor denies performing an operation | Record available request, actor, timestamp, action, and outcome information in the audit log | `test_audit_integrity.py::test_audit_event_logged_on_successful_login`; document-specific audit coverage requires separate verification |
 | TH-09 | Repudiation | Tampering with historical audit records | Verify the SHA-256-linked audit hash chain | `test_audit_integrity.py::test_audit_chain_tamper_detection` |
-| TH-10 | Information Disclosure | Probing document IDs using different error responses | Return a uniform HTTP 404 for nonexistent or unauthorized documents | `test_document_access.py::test_unpermitted_user_cannot_access_document`; compare responses for both cases in a dedicated test |
+| TH-10 | Information Disclosure | Probing document IDs using different error responses | Return a uniform HTTP 404 for nonexistent or unauthorized documents | `test_document_permissions.py::test_download_hides_whether_document_exists` — passed (1 test; download status and public error message compared) |
 | TH-11 | Information Disclosure | Cross-user document listing exposes private document metadata | Restrict document-list results to documents the requester owns or is authorized to access | `test_document_permissions.py::test_document_list_is_isolated_between_users` — passed; a separate search-isolation test remains outstanding if search is implemented |
 | TH-12 | Information Disclosure | Secrets exposed by health or configuration endpoints | Mask secrets and sensitive configuration values in diagnostic responses | `test_config_health.py::test_config_check_masks_secrets` |
 | TH-13 | Denial of Service | Storage exhaustion through oversized uploads | Enforce the configured upload-size limit while streaming and reject oversized requests | `tests/test_document_upload.py::test_oversized_upload_is_rejected` — passed; test uses an 8-byte limit to exercise the rejection path |
@@ -39,7 +39,7 @@ Example response:
 
 ```json
 {
-  "detail": "Document not found or access denied"
+  "detail": "Document not found"
 }
 ```
 
@@ -81,7 +81,7 @@ The following areas require additional verification or dedicated tests:
 - Upload-size enforcement: the oversized-upload rejection path is tested with a reduced limit; a full-size upload at the configured 25 MiB limit has not been tested.
 - Filename path-component stripping is tested. Windows storage symlink-escape testing has passed after enabling Windows Developer Mode. The test was rerun successfully, and the latest full backend suite completed with 73 passed, 0 skipped, and 4 warnings.
 - Content-validation tests now cover PDF signatures, PNG/JPG signatures, DOCX/XLSX ZIP structure, and UTF-8 TXT/CSV content. These are lightweight validation checks, not full file-format parsing, malware scanning, or a guarantee that uploaded files are safe.
-- Equivalent public responses for nonexistent and unauthorized documents across all protected endpoints.
+- Equivalent public responses for nonexistent and unauthorized documents across all protected endpoints; the download endpoint's status and error message are covered by `test_document_permissions.py::test_download_hides_whether_document_exists`.
 - Automated tests proving runtime database-role restrictions beyond audit-table immutability, including DDL restrictions.
 - Audit logging failure monitoring and broader document-specific audit coverage.
 - Production audit-chain resilience against privileged database or host administrators; external immutable log anchoring is recommended for production.
