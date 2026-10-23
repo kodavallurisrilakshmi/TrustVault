@@ -394,6 +394,64 @@ async def test_revoked_viewer_cannot_download_document(
 
 
 @pytest.mark.asyncio
+async def test_download_fails_when_success_audit_fails(
+    client,
+    db_session,
+    test_user_a,
+    test_user_b,
+    user_a_headers,
+    user_b_headers,
+    monkeypatch,
+):
+    from app.api.v1.endpoints import documents
+
+    document_id = uuid.uuid4()
+    document = Document(
+        id=document_id,
+        title="Audit Failure Download Test",
+        description=None,
+        category="general",
+        owner_id=test_user_a.id,
+        storage_key=f"test/{uuid.uuid4().hex}",
+        original_filename="audit-test.txt",
+        file_size_bytes=12,
+        mime_type="text/plain",
+        content_sha256="a" * 64,
+    )
+    db_session.add(document)
+    await db_session.flush()
+
+    permission = DocumentPermission(
+        id=uuid.uuid4(),
+        document_id=document_id,
+        user_id=test_user_b.id,
+        permission_level="view",
+        granted_by=test_user_a.id,
+    )
+    db_session.add(permission)
+    await db_session.commit()
+
+    monkeypatch.setattr(
+        documents.LocalStorageService,
+        "read_file",
+        lambda self, storage_key: b"test file data",
+    )
+
+    async def fail_audit(**kwargs):
+        raise RuntimeError("Simulated download audit failure")
+
+    monkeypatch.setattr(documents.AuditService, "log_event", fail_audit)
+
+    response = await client.get(
+        f"/api/v1/documents/{document_id}/download",
+        headers=user_b_headers,
+    )
+
+    assert response.status_code >= 500
+    assert response.content != b"test file data"
+
+
+@pytest.mark.asyncio
 async def test_admin_cannot_download_private_document_without_permission(
     client,
     db_session,

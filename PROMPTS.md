@@ -92,3 +92,20 @@ This log records interactions with the AI assistant during the development of Tr
   - Existing threat-model limitations and the security reporting-address placeholder were retained.
   - Earlier test counts remain historical records and were not replaced with newer results.
 - **Git Commit**: Pending documentation review and verification.
+
+### Entry 006: Download Audit Failure Handling and Regression Verification
+
+- **Date**: 2026-10-23
+- **Prompt / Summary**: Ensure document downloads fail safely when successful-download audit logging or database commit fails, and verify the behavior with automated regression tests.
+- **Actual Output**:
+  - Updated the document download endpoint to roll back the database transaction and return HTTP 500 if success-audit logging or commit fails.
+  - Ensured the endpoint does not return document contents when the download audit operation fails.
+  - Added a regression test simulating a download audit failure and verifying that file contents are not returned.
+  - Focused document permission tests: 11 passed, 4 warnings.
+  - Full backend test suite: 71 passed, 1 skipped, 4 warnings.
+  - `git diff --check` completed without errors.
+- **Known Limitations**:
+  - Windows symlink-escape testing remains skipped because the environment lacks the required privilege.
+  - Four Pydantic v2 deprecation warnings remain.
+  - These tests do not establish protection against a privileged database or host administrator rewriting audit history; external immutable audit-log anchoring remains recommended for production.
+- **Git Commit**: Pending review and verification.

@@ -556,25 +556,33 @@ async def download_document(
     # Record successful access without recording file contents.
     actor_ip = request.client.host if request.client else "127.0.0.1"
 
-    await AuditService.log_event(
-        db=db,
-        request_id=request_id,
-        actor_ip=actor_ip,
-        actor_id=current_user.id,
-        actor_email=current_user.email,
-        user_agent=request.headers.get("user-agent"),
-        action="DOCUMENT_DOWNLOADED",
-        target_type="document",
-        target_id=str(document.id),
-        result="SUCCESS",
-        metadata_json={
-            "filename": document.original_filename,
-            "file_size_bytes": document.file_size_bytes,
-            "content_sha256": document.content_sha256,
-        },
-    )
+    try:
+        await AuditService.log_event(
+            db=db,
+            request_id=request_id,
+            actor_ip=actor_ip,
+            actor_id=current_user.id,
+            actor_email=current_user.email,
+            user_agent=request.headers.get("user-agent"),
+            action="DOCUMENT_DOWNLOADED",
+            target_type="document",
+            target_id=str(document.id),
+            result="SUCCESS",
+            metadata_json={
+                "filename": document.original_filename,
+                "file_size_bytes": document.file_size_bytes,
+                "content_sha256": document.content_sha256,
+            },
+        )
 
-    await db.commit()
+        await db.commit()
+
+    except Exception:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Unable to complete document download audit",
+        ) from None
 
     # Prevent filename characters from injecting response headers.
     safe_filename = re.sub(
