@@ -669,3 +669,98 @@ async def test_download_hides_whether_document_exists(
 
     assert unauthorized_response.json()["detail"] == "Document not found"
     assert nonexistent_response.json()["detail"] == "Document not found"
+
+@pytest.mark.asyncio
+async def test_grant_permission_hides_whether_document_exists(
+    client,
+    db_session,
+    test_user_a,
+    test_admin_user,
+    user_b_headers,
+):
+    document_id = uuid.uuid4()
+
+    document = Document(
+        id=document_id,
+        title="Private Contract",
+        description=None,
+        category="legal",
+        owner_id=test_user_a.id,
+        storage_key=f"test/{uuid.uuid4().hex}",
+        original_filename="private.pdf",
+        file_size_bytes=100,
+        mime_type="application/pdf",
+        content_sha256="c" * 64,
+    )
+    db_session.add(document)
+    await db_session.commit()
+
+    payload = {
+        "user_id": str(test_admin_user.id),
+        "permission_level": "view",
+    }
+
+    # Existing document owned by another user.
+    unauthorized_response = await client.post(
+        f"/api/v1/documents/{document_id}/permissions",
+        headers=user_b_headers,
+        json=payload,
+    )
+
+    # Document ID that does not exist.
+    nonexistent_response = await client.post(
+        f"/api/v1/documents/{uuid.uuid4()}/permissions",
+        headers=user_b_headers,
+        json=payload,
+    )
+
+    assert unauthorized_response.status_code == 404
+    assert nonexistent_response.status_code == 404
+
+    assert unauthorized_response.json()["detail"] == "Document not found"
+    assert nonexistent_response.json()["detail"] == "Document not found"
+
+
+
+@pytest.mark.asyncio
+async def test_revoke_permission_hides_whether_document_exists(
+    client,
+    db_session,
+    test_user_a,
+    test_user_b,
+    user_b_headers,
+):
+    document_id = uuid.uuid4()
+
+    document = Document(
+        id=document_id,
+        title="Private Revocation Test",
+        description=None,
+        category="legal",
+        owner_id=test_user_a.id,
+        storage_key=f"test/{uuid.uuid4().hex}",
+        original_filename="private.pdf",
+        file_size_bytes=100,
+        mime_type="application/pdf",
+        content_sha256="d" * 64,
+    )
+    db_session.add(document)
+    await db_session.commit()
+
+    # Attempt to revoke permission on another user's document.
+    unauthorized_response = await client.delete(
+        f"/api/v1/documents/{document_id}/permissions/{test_user_a.id}",
+        headers=user_b_headers,
+    )
+
+    # Attempt to revoke permission on a nonexistent document.
+    nonexistent_response = await client.delete(
+        f"/api/v1/documents/{uuid.uuid4()}/permissions/{test_user_a.id}",
+        headers=user_b_headers,
+    )
+
+    assert unauthorized_response.status_code == 404
+    assert nonexistent_response.status_code == 404
+
+    assert unauthorized_response.json()["detail"] == "Document not found"
+    assert nonexistent_response.json()["detail"] == "Document not found"
