@@ -130,3 +130,21 @@ This log records interactions with the AI assistant during the development of Tr
   - External immutable audit-log anchoring remains recommended for production.
   - Other outstanding items documented in `THREATS.md` and `SECURITY.md` remain open until independently verified.
 - **Git Commit**: Pending documentation update and final verification.
+
+### Entry 008: Full Backend Security Regression Verification
+
+- **Date**: 2026-10-23
+- **Prompt / Summary**: Verify the complete backend test suite, run the Windows symbolic-link escape test, and add unauthenticated-upload regression coverage.
+- **Actual Output**:
+  - Reran `test_storage_rejects_symlink_escape`; result: 1 passed.
+  - Added `test_unauthenticated_upload_is_rejected`; unauthenticated upload returns HTTP 401.
+  - Upload test module: 21 passed, 4 warnings.
+  - Full backend test suite: 73 passed, 0 skipped, 4 warnings in 4.34 seconds.
+  - Latest test commit: `66f45af` (Test unauthenticated document upload rejection).
+- **Known Limitations**:
+  - Four Pydantic v2 deprecation warnings remain.
+  - Passing tests do not prove the absence of all security vulnerabilities.
+  - Audit-chain verification does not prove that every relevant action was logged or prevent a privileged administrator from rewriting audit history.
+  - External immutable audit-log anchoring remains recommended for production.
+  - Remaining items in `THREATS.md` and `SECURITY.md` require review before production deployment.
+- **Git Commit**: Pending documentation review and verification.
