@@ -17,7 +17,7 @@ Our core security architecture is governed by five mandatory pillars:
 
 | Version | Supported | Status |
 | :--- | :---: | :--- |
-| 1.0.x (Current) | ✅ | Active Development & Security Updates |
+| 1.0.x (Current) | Yes | Active Development & Security Updates |
 
 ---
 

@@ -79,7 +79,7 @@ If a document owner leaves the organization or becomes unable to manage their do
 The following areas require additional verification or dedicated tests:
 - Cross-user document search isolation, if search is implemented.
 - Upload-size enforcement: the oversized-upload rejection path is tested with a reduced limit; a full-size upload at the configured 25 MiB limit has not been tested.
-- Filename path-component stripping is tested. Windows-compatible storage symlink-escape testing remains skipped because the current environment lacks the required privilege.
+- Filename path-component stripping is tested. Windows storage symlink-escape testing has passed after enabling Windows Developer Mode. The test was rerun successfully, and the latest full backend suite completed with 73 passed, 0 skipped, and 4 warnings.
 - Content-validation tests now cover PDF signatures, PNG/JPG signatures, DOCX/XLSX ZIP structure, and UTF-8 TXT/CSV content. These are lightweight validation checks, not full file-format parsing, malware scanning, or a guarantee that uploaded files are safe.
 - Equivalent public responses for nonexistent and unauthorized documents across all protected endpoints.
 - Automated tests proving runtime database-role restrictions beyond audit-table immutability, including DDL restrictions.
@@ -89,3 +89,18 @@ The following areas require additional verification or dedicated tests:
 The expired-JWT rejection and administrator-without-permission download tests have been added and passed in the full backend test suite.
 
 Update this matrix whenever tests are added, changed, skipped, or fail. Record actual results and avoid describing unverified security controls as proven.
+
+### Production Database Privilege Verification
+
+Production PostgreSQL permissions were manually verified on 2026-10-23 using read-only queries against the `trustvault` database.
+
+Verified results:
+- `trustvault_app` is not a superuser and cannot create databases or roles.
+- The application role has `USAGE` but not `CREATE` on the `public` schema.
+- The `audit_logs` table and its immutability trigger function are owned by `trustvault_admin`.
+- The application role has `SELECT` and `INSERT` privileges on `audit_logs`, but not `UPDATE`, `DELETE`, or `TRUNCATE`.
+- The `BEFORE UPDATE OR DELETE` audit immutability trigger is enabled.
+
+These results are manual production verification evidence, not automated production-database tests. The test fixture uses the separate `trustvault_test` database, where the application role has DDL privileges to create and remove test tables. Do not use that test database to claim production privilege separation has been automatically tested.
+
+Privileged database or host administrators may still bypass database-level protections. External immutable audit-log anchoring remains recommended for production deployments.
