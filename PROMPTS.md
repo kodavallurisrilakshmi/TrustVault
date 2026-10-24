@@ -167,3 +167,20 @@ This log records interactions with the AI assistant during the development of Tr
   - Privileged database or host administrators may bypass database-level audit protections. External immutable audit-log anchoring remains recommended for production.
   - Remaining release requirements documented in `THREATS.md` and `SECURITY.md` require review before production deployment.
 - **Git Commit**: `f49eba9`
+
+### Entry 010: Final Backend Regression and Frontend Build Verification
+
+- **Date**: 2026-10-24
+- **Prompt / Summary**: Verify configured upload-size boundaries, rerun the complete backend test suite, and build the React frontend for production.
+- **Actual Output**:
+  - Configured 25 MiB upload-boundary tests: 2 passed, 21 deselected, 4 warnings.
+  - Full backend test suite: 84 passed, 0 failed, 4 Pydantic deprecation warnings in 6.37 seconds.
+  - Frontend production build succeeded using Vite 5.4.21; 33 modules transformed.
+  - Latest local Git commit: `7e16fba` (`Test configured upload size boundaries`).
+- **Known Limitations**:
+  - Four Pydantic v2 deprecation warnings remain.
+  - Passing automated tests do not prove the absence of all security vulnerabilities.
+  - Production database privilege checks were manually verified; they are not automated integration tests against production roles.
+  - Privileged database or host administrators may bypass database-level audit protections. External immutable audit-log anchoring remains recommended for production.
+  - Outstanding threat-model and release requirements remain open until verified.
+- **Git Commit**: `7e16fba`
