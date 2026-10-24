@@ -392,6 +392,22 @@ async def test_revoked_viewer_cannot_download_document(
     assert after.status_code == 404
     assert after.json()["detail"] == "Document not found"
 
+    denial_result = await db_session.execute(
+        select(AuditLog).where(
+            AuditLog.action == "DOCUMENT_ACCESS_DENIED",
+            AuditLog.target_id == str(document_id),
+            AuditLog.actor_id == test_user_b.id,
+        )
+    )
+    denial_entries = denial_result.scalars().all()
+
+    assert any(
+        entry.result == "DENIED"
+        and entry.denial_reason == "NO_CURRENT_PERMISSION"
+        and entry.record_hash
+        for entry in denial_entries
+    ), "Expected a hashed audit record for the denied post-revocation download"
+
 
 @pytest.mark.asyncio
 async def test_download_fails_when_success_audit_fails(
