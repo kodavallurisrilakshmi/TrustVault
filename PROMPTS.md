@@ -184,3 +184,20 @@ This log records interactions with the AI assistant during the development of Tr
   - Privileged database or host administrators may bypass database-level audit protections. External immutable audit-log anchoring remains recommended for production.
   - Outstanding threat-model and release requirements remain open until verified.
 - **Git Commit**: `7e16fba`
+
+### Entry 011: Audit Integrity and Final Regression Verification
+
+- **Date**: 2026-10-24
+- **Prompt / Summary**: Verify audit-chain integrity, upload rollback when audit logging fails, PostgreSQL audit-log protections, and the current backend and frontend builds.
+- **Actual Output**:
+  - Audit integrity tests: 6 passed.
+  - Full backend test suite: 85 passed, 0 failed in 12.83 seconds.
+  - Frontend production build succeeded using Vite 5.4.21; 33 modules transformed.
+  - PostgreSQL role privileges and the audit-log immutability trigger were manually verified. These checks are not automated integration tests against production roles.
+  - Latest verified code commit: `35b1356` (`Test upload rollback when audit logging fails`).
+- **Known Limitations**:
+  - Passing tests do not prove the absence of all security vulnerabilities.
+  - A valid hash chain does not prove every relevant action was logged.
+  - Privileged database or host administrators may bypass database-level audit protections. External immutable audit-log anchoring remains recommended for production.
+  - Documentation changes and final release checks remain pending.
+- **Git Commit**: Documentation update pending.

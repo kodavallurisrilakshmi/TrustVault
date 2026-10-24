@@ -1,15 +1,15 @@
 # TrustVault - Enterprise Secure Document-Sharing Platform
 
-TrustVault is a zero-trust enterprise document-sharing platform engineered with Python FastAPI, PostgreSQL, and React + Vite. It provides discretionary access control (DAC), strict administrative separation of duties, streaming upload verification, and an append-only, tamper-evident audit log with SHA-256 Merkle hash chaining.
+TrustVault is a zero-trust enterprise document-sharing platform engineered with Python FastAPI, PostgreSQL, and React + Vite. It provides discretionary access control (DAC), strict administrative separation of duties, streaming upload verification, and a tamper-evident audit log using a linear SHA-256-linked hash chain.
 
 ---
 
 ## 1. Core Security Features
 
 - **Least-Privilege Administrators**: Administrators manage platform users and audit logs, but **cannot read or download confidential document contents** without explicit document owner grants.
-- **Immediate Revocation**: Session invalidations (`token_version`) and permission revocations take effect on subsequent requests with zero cache window.
+- **Revocation Checks**: Session invalidations (`token_version`) and permission changes are checked on subsequent protected requests; access depends on the current server-side authorization state.
 - **Private Local Storage Vault**: Files reside outside the web root, named by high-entropy UUIDs (`storage_vault/ab/cd/<uuid>.bin`). Path traversal (`../../etc/passwd`) is neutralized.
-- **Append-Only Immutable Audit Log**: Secured by a PostgreSQL trigger blocking `UPDATE` and `DELETE`, plus a continuous cryptographic SHA-256 Merkle hash chain.
+- **Tamper-Evident Audit Log**: A PostgreSQL trigger blocks `UPDATE` and `DELETE` through the normal database path, while a linear SHA-256-linked hash chain helps detect record changes. Privileged database administrators may still bypass these protections.
 - **Database Privilege Separation**: Application runtime role (`trustvault_app`) lacks DDL and schema alteration rights and is denied `UPDATE`/`DELETE` on `audit_logs`.
 
 ---
@@ -28,26 +28,26 @@ TrustVault is a zero-trust enterprise document-sharing platform engineered with 
 
 ```
 TrustVault/
-├── backend/
-│   ├── alembic/              # Database schema migrations
-│   ├── app/
-│   │   ├── api/              # V1 API routes (auth, users, documents, permissions, audit)
-│   │   ├── core/             # Config, security (Argon2id/JWT), database engines
-│   │   ├── models/           # SQLAlchemy models (User, Document, Permission, AuditLog)
-│   │   ├── schemas/          # Pydantic v2 schemas
-│   │   ├── services/         # AuditService, DocumentService, StorageService
-│   │   └── main.py           # Application entrypoint & health checks
-│   ├── tests/                # Automated security integration tests
-│   └── requirements.txt      # Pinned backend dependencies
-├── frontend/                 # React + Vite application
-├── storage_vault/            # Private local storage vault
-├── docs/
-│   ├── ARCHITECTURE.md       # Full architecture specification
-│   └── API.md                # REST API documentation
-├── THREATS.md                # STRIDE threat model & test matrix
-├── SECURITY.md               # Security policy & disclosure guidelines
-├── PROMPTS.md                # Verifiable AI interaction log
-└── README.md                 # Setup and execution guide
+|-- backend/
+|   |-- alembic/              # Database schema migrations
+|   |-- app/
+|   |   |-- api/              # V1 API routes
+|   |   |-- core/             # Configuration, security, database
+|   |   |-- models/           # SQLAlchemy models
+|   |   |-- schemas/          # Pydantic schemas
+|   |   |-- services/         # Business and storage services
+|   |   `-- main.py           # Application entrypoint
+|   |-- tests/                # Automated security tests
+|   `-- requirements.txt      # Backend dependencies
+|-- frontend/                 # React + Vite application
+|-- storage_vault/             # Private local file storage
+|-- docs/
+|   |-- ARCHITECTURE.md
+|   `-- API.md
+|-- THREATS.md                 # Threat model and test matrix
+|-- SECURITY.md                # Security policy
+|-- PROMPTS.md                 # AI interaction and verification log
+`-- README.md                  # Setup and execution guide
 ```
 
 ---

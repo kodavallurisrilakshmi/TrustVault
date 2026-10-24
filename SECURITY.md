@@ -55,12 +55,12 @@ A valid hash chain demonstrates consistency of the records being checked; by its
 
 Latest reported local verification:
 
-- **Backend tests:** 84 passed, 0 failed in 10.07 seconds.
+- **Backend tests:** 85 passed, 0 failed in 12.83 seconds (latest local verification, 2026-10-24).
 - **Frontend production build:** Successful with Vite 5.4.21; 33 modules transformed.
 - **Pydantic configuration:** Deprecated class-based schema configuration replaced with `ConfigDict`.
 - **Upload-size boundaries:** Previously reported tests confirmed that an upload exactly at the configured 25 MiB limit succeeds and an upload one byte over the limit is rejected with HTTP 413.
 - **Database privilege separation:** Production PostgreSQL privileges were manually verified on 2026-10-23. These checks are not automated integration tests against the production roles.
 
-Latest verification checkpoint: backend test suite and frontend production build passed after commit `0ba5d92` (`Restore complete security policy documentation`).
+Latest verification checkpoint: backend test suite and frontend production build passed at commit `35b1356` (`Test upload rollback when audit logging fails`).
 
 These results are a verification snapshot, not a security certification. Consult `THREATS.md` for outstanding tests, known limitations, and production recommendations. Repeat relevant checks after subsequent code or configuration changes.
