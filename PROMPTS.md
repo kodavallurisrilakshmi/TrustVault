@@ -148,3 +148,22 @@ This log records interactions with the AI assistant during the development of Tr
   - External immutable audit-log anchoring remains recommended for production.
   - Remaining items in `THREATS.md` and `SECURITY.md` require review before production deployment.
 - **Git Commit**: Pending documentation review and verification.
+
+### Entry 009: Revocation Audit Regression and Release Verification
+
+- **Date**: 2026-10-24
+- **Prompt / Summary**: Strengthen automated verification that a document download denied after permission revocation creates the expected security audit record.
+- **Actual Output**:
+  - Extended `backend/tests/test_document_permissions.py::test_revoked_viewer_cannot_download_document` to assert that a post-revocation denial has result `DENIED`, denial reason `NO_CURRENT_PERMISSION`, and a non-empty audit record hash.
+  - Focused revocation regression test: 1 passed.
+  - Full backend test suite: 82 passed, 0 failed, 4 Pydantic deprecation warnings in 17.99 seconds.
+  - Frontend production build succeeded using Vite 5.4.21.
+  - `git diff --check` completed without whitespace errors.
+  - Committed the test improvement as `f49eba9` (`Test audit logging after permission revocation`).
+- **Known Limitations**:
+  - Four Pydantic v2 deprecation warnings remain.
+  - Passing tests do not prove the absence of all security vulnerabilities or guarantee that every security-relevant action is audited.
+  - Production PostgreSQL privilege separation has been manually verified; those checks are not equivalent to automated integration tests against production roles.
+  - Privileged database or host administrators may bypass database-level audit protections. External immutable audit-log anchoring remains recommended for production.
+  - Remaining release requirements documented in `THREATS.md` and `SECURITY.md` require review before production deployment.
+- **Git Commit**: `f49eba9`

@@ -79,7 +79,7 @@ If a document owner leaves the organization or becomes unable to manage their do
 The following areas require additional verification or dedicated tests:
 - Cross-user document search isolation, if search is implemented.
 - Upload-size enforcement: the oversized-upload rejection path is tested with a reduced limit; a full-size upload at the configured 25 MiB limit has not been tested.
-- Filename path-component stripping is tested. Windows storage symlink-escape testing has passed after enabling Windows Developer Mode. The test was rerun successfully, and the latest full backend suite completed with 73 passed, 0 skipped, and 4 warnings.
+- Filename path-component stripping is tested. Windows storage symlink-escape testing has passed after enabling Windows Developer Mode. The test was rerun successfully. The latest full backend suite completed on 2026-10-24 with 82 passed, 0 failed, and 4 Pydantic deprecation warnings in 17.99 seconds. Historical results remain documented in `PROMPTS.md`.
 - Content-validation tests now cover PDF signatures, PNG/JPG signatures, DOCX/XLSX ZIP structure, and UTF-8 TXT/CSV content. These are lightweight validation checks, not full file-format parsing, malware scanning, or a guarantee that uploaded files are safe.
 - Equivalent public responses for nonexistent and unauthorized documents across all protected endpoints; the download endpoint's status and error message are covered by `test_document_permissions.py::test_download_hides_whether_document_exists`.
 - Automated tests proving runtime database-role restrictions beyond audit-table immutability, including DDL restrictions.
