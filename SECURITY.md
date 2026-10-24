@@ -7,7 +7,7 @@ TrustVault is designed to secure sensitive enterprise documents against unauthor
 Our core security architecture is governed by five mandatory pillars:
 1. **Zero-Trust Access Control**: No client-side claims (roles, permissions, IDs) are ever trusted. Authorization is evaluated against current database state on every request.
 2. **Confidentiality & Least Privilege**: Platform Administrators maintain operational oversight and audit review, but **never possess automatic access to confidential document contents**.
-3. **Immediate Revocation**: Session invalidation and permission revocations take effect on subsequent requests with zero cache window.
+3. 3. **Immediate Revocation**: Session invalidation and document permission revocations are intended to take effect on subsequent protected requests. This depends on checking the current session and permission state on each request without relying on stale authorization data.
 4. **Audit Immutability**: All security actions and unauthorized attempts are logged to an append-only, trigger-protected database table secured with SHA-256-linked audit hash chaining.
 5. **Database Privilege Separation**: The runtime application user (`trustvault_app`) is blocked from executing DDL migrations, altering triggers, or updating/deleting audit records.
 
