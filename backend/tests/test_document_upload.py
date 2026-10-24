@@ -277,3 +277,75 @@ async def test_upload_at_exact_size_limit_succeeds(
 
     assert response.status_code == 201, response.text
     assert response.json()["file_size_bytes"] == len(content)
+
+
+@pytest.mark.asyncio
+async def test_upload_at_configured_25_mib_limit_succeeds(
+    client, user_a_headers, monkeypatch
+):
+    from app.api.v1.endpoints import documents
+
+    configured_limit = 25 * 1024 * 1024
+    content = b"x" * configured_limit
+
+    monkeypatch.setattr(
+        documents.settings,
+        "MAX_UPLOAD_SIZE_BYTES",
+        configured_limit,
+    )
+
+    response = await client.post(
+        "/api/v1/documents",
+        headers=user_a_headers,
+        files={
+            "file": (
+                "configured-limit.txt",
+                content,
+                "text/plain",
+            )
+        },
+        data={
+            "title": "Configured 25 MiB limit test",
+            "category": "general",
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["file_size_bytes"] == configured_limit
+
+
+@pytest.mark.asyncio
+async def test_upload_one_byte_over_configured_25_mib_limit_is_rejected(
+    client, user_a_headers, monkeypatch
+):
+    from app.api.v1.endpoints import documents
+
+    configured_limit = 25 * 1024 * 1024
+    content = b"x" * (configured_limit + 1)
+
+    monkeypatch.setattr(
+        documents.settings,
+        "MAX_UPLOAD_SIZE_BYTES",
+        configured_limit,
+    )
+
+    response = await client.post(
+        "/api/v1/documents",
+        headers=user_a_headers,
+        files={
+            "file": (
+                "over-limit.txt",
+                content,
+                "text/plain",
+            )
+        },
+        data={
+            "title": "Over 25 MiB limit test",
+            "category": "general",
+        },
+    )
+
+    assert response.status_code == 413, response.text
+    assert response.json()["detail"] == (
+        "File exceeds the maximum upload size"
+    )
