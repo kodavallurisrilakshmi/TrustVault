@@ -349,3 +349,61 @@ async def test_upload_one_byte_over_configured_25_mib_limit_is_rejected(
     assert response.json()["detail"] == (
         "File exceeds the maximum upload size"
     )
+
+
+@pytest.mark.asyncio
+async def test_upload_audit_failure_rolls_back_and_cleans_up_file(
+    client, user_a_headers, db_session, monkeypatch, tmp_path
+):
+    from app.api.v1.endpoints import documents
+    from app.models.document import Document
+    from sqlalchemy import select
+
+    storage = documents.LocalStorageService(root=tmp_path)
+    monkeypatch.setattr(
+        documents,
+        "LocalStorageService",
+        lambda: storage,
+    )
+
+    async def fail_audit(*args, **kwargs):
+        raise RuntimeError("Simulated audit failure")
+
+    monkeypatch.setattr(
+        documents.AuditService,
+        "log_event",
+        fail_audit,
+    )
+
+    with pytest.raises(RuntimeError, match="Simulated audit failure"):
+        await client.post(
+            "/api/v1/documents",
+            headers=user_a_headers,
+            files={
+                "file": (
+                    "audit-failure.txt",
+                    b"Document requiring audit",
+                    "text/plain",
+                )
+            },
+            data={
+                "title": "Audit failure cleanup test",
+                "category": "general",
+            },
+        )
+
+    remaining_files = [
+        path for path in tmp_path.rglob("*") if path.is_file()
+    ]
+    assert remaining_files == [], (
+        f"Upload files were not cleaned up: {remaining_files}"
+    )
+
+    result = await db_session.execute(
+        select(Document).where(
+            Document.title == "Audit failure cleanup test"
+        )
+    )
+    assert result.scalar_one_or_none() is None, (
+        "Document record persisted despite audit failure"
+    )
