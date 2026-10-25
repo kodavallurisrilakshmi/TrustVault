@@ -1,4 +1,4 @@
-# TrustVault - AI Interaction Log (PROMPTS.md)
+﻿# TrustVault - AI Interaction Log (PROMPTS.md)
 
 This log records interactions with the AI assistant during the development of TrustVault, in accordance with project audit rules. Each entry captures the date, a prompt summary, actual output, specific errors/discrepancies discovered, corrections applied, and Git commit references where applicable.
 
@@ -201,3 +201,104 @@ This log records interactions with the AI assistant during the development of Tr
   - Privileged database or host administrators may bypass database-level audit protections. External immutable audit-log anchoring remains recommended for production.
   - Documentation changes and final release checks remain pending.
 - **Git Commit**: Documentation update pending.
+
+### Entry 012: Latest Backend, Frontend, Audit, and Readiness Verification
+
+- **Date:** 2026-10-24
+- **Prompt / Summary:** Re-run the backend test suite, verify the health endpoint syntax, build the frontend for production, verify the current audit chain and Alembic migration, and inspect repository hygiene and security documentation.
+- **Actual Output:**
+  - Full backend test suite: 91 passed, 0 failed, in 6.30 seconds.
+  - Configuration and health tests: 14 passed in 0.17 seconds, including writable, missing, and regular-file vault path checks.
+  - `python -m py_compile .\app\main.py` completed successfully.
+  - Frontend production build succeeded using Vite 5.4.21; 33 modules transformed.
+  - Audit-chain verification returned `Valid: True`, with 135 records verified.
+  - Alembic current revision: `ed28e992c911 (head)`.
+  - `.gitignore` rules for environment files were checked, and temporary pre-deployment backup files were removed.
+- **Known Limitations:**
+  - These checks do not establish that production infrastructure is provisioned or correctly configured.
+  - Production secrets, hosted database configuration, persistent disk mounting, and production CORS origins still require verification.
+  - External immutable audit-log anchoring and audit-failure monitoring remain production considerations.
+  - Outstanding security limitations documented in `THREATS.md` remain open until independently verified.
+- **Git Commit:** Pending review and verification. No new commit is claimed by this entry.
+- **Follow-up verification (2026-10-24):** Full backend suite rerun: 91 passed, 0 failed, in 6.99 seconds. Frontend production build succeeded again with Vite 5.4.21; 33 modules transformed.
+
+### Entry 013: Latest Audit and Full Backend Regression Verification
+
+- **Date:** 2026-10-24
+- **Prompt / Summary:** Correct the legacy audit-hash verification logic, add a Unicode metadata regression test, and rerun the full backend suite and frontend production build.
+- **Actual Output:**
+  - Audit integrity tests: 10 passed, 0 failed, in 1.05 seconds.
+  - Full backend test suite: 93 passed, 0 failed, in 10.28 seconds.
+  - Frontend production build: Successful.
+- **Known Limitations:**
+  - Passing tests do not prove the absence of all security vulnerabilities.
+  - A valid audit hash chain does not prove that every security-relevant action was logged or prevent a privileged database or host administrator from rewriting audit history.
+  - Production deployment, final secret scanning, external immutable audit-log anchoring, and audit-failure monitoring remain outstanding.
+- **Git Commit:** No new commit claimed by this entry.
+
+### Entry 014: Production Configuration Validation Regression Test
+
+- **Date:** 2026-10-24
+- **Prompt / Summary:** Added a regression test verifying that production configuration rejects a database URL containing the loopback IP address `127.0.0.1`.
+- **Actual Output:**
+  - Configuration and health tests: 16 passed, 0 failed, in 0.33 seconds.
+  - Full backend test suite: 94 passed, 0 failed, in 5.04 seconds.
+  - Frontend production build: Successful using Vite 5.4.21; 33 modules transformed in 854 ms.
+- **Known Limitations:**
+  - Passing tests do not establish that all security vulnerabilities have been eliminated.
+  - Production hosting, persistent storage, audit-failure monitoring, and external immutable audit-log anchoring remain outstanding.
+  - Final repository review and release-readiness checks are still pending.
+- **Git Commit:** No new commit claimed by this entry.
+
+### Entry 015: Final Local Verification Checkpoint
+
+- **Date:** 2026-10-24
+- **Prompt / Summary:** Record the latest local verification results for backend regression tests, frontend production build, audit-chain integrity, database migration status, and manually verified PostgreSQL privilege separation.
+- **Actual Output:**
+  - Full backend test suite: 94 passed, 0 failed, in 7.04 seconds.
+  - Frontend production build: Successful using Vite 5.4.21; 33 modules transformed in the latest reported build.
+  - Live audit-chain verification: HTTP 200; `is_valid=true`; 136 records verified; no broken record reported.
+  - Database migration: Current and head revisions both equal `ed28e992c911`.
+  - Manual production database checks: `trustvault_app` has `SELECT` and `INSERT`, but not `UPDATE`, `DELETE`, or `TRUNCATE` on `public.audit_logs`. `trustvault_admin` owns the table, the application role is not an owner-role member, and `trg_audit_logs_immutable` is enabled.
+  - Documentation checks: `git diff --check` reports no whitespace errors; Git still reports line-ending warnings for modified files.
+- **Known Limitations:**
+  - PostgreSQL privilege checks were manual read-only checks, not automated integration tests against production roles.
+  - Passing tests and a valid audit chain do not prove the absence of all vulnerabilities or prove that every relevant action is logged.
+  - Production hosting, persistent storage, production secrets and CORS verification, audit-failure monitoring, external immutable audit-log anchoring, and the remaining release-readiness checks are outstanding.
+- **Git Commit:** No new commit claimed by this entry.
+
+### Entry 016 � Final local verification checkpoint (2026-10-24)
+
+**Purpose:** Record the latest local regression, audit-integrity, frontend-build, and repository checks.
+
+**Verification results**
+- Backend regression suite: 99 passed, 0 failed, in 5.56 seconds (latest rerun on 2026-10-24).
+- Revocation tests: revoked viewers cannot list or download the document.
+- Frontend production build: successful.
+- Live audit-chain verification: HTTP 200; `is_valid=true`; 137 records verified; no broken record reported.
+- `git diff --check`: no whitespace errors. Git displayed LF-to-CRLF line-ending warnings.
+- Working tree: nine tracked files modified; changes remain uncommitted.
+
+**Known limitations and release blockers**
+- Production deployment and production configuration have not been verified.
+- Audit-failure monitoring and broader automated database-privilege tests remain outstanding.
+- The current hash-chain verification does not independently prevent a privileged database operator from rewriting the chain.
+- This checkpoint records local verification only; it is not a production security certification.
+
+**Outcome:** Local regression and the recorded checks passed. Continue the release-readiness review before production deployment.
+
+### Entry 017: Latest Audit-Chain Verification
+
+- **Date:** 2026-10-24
+- **Prompt / Summary:** Verify the current cryptographic audit chain after the latest document-sharing and permission-revocation checks.
+- **Actual Output:**
+  - Audit verification endpoint returned HTTP 200.
+  - `is_valid=true`.
+  - 152 audit records verified.
+  - `broken_record_id`, `expected_hash`, and `actual_hash` were all `null`.
+  - Verification message: `Cryptographic audit chain fully verified (152 records).`
+- **Known Limitations:**
+  - This confirms the chain passed verification at this checkpoint; it does not prove every security-relevant action was logged.
+  - It does not prevent a privileged database administrator from rewriting the entire chain.
+  - Production deployment and remaining release-readiness checks are still outstanding.
+- **Git Commit:** No commit claimed; documentation changes remain uncommitted.

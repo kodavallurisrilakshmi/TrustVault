@@ -1,6 +1,8 @@
 import pytest
+from pathlib import Path
 from httpx import AsyncClient
 from app.core.config import Settings
+from app.main import check_vault_writable
 
 
 @pytest.mark.asyncio
@@ -21,6 +23,29 @@ async def test_readiness_health_check(client: AsyncClient):
     data = response.json()
     assert "database" in data
     assert "vault" in data
+
+
+def test_check_vault_writable_for_writable_directory(tmp_path):
+    """A writable vault directory should pass the storage check."""
+    assert check_vault_writable(tmp_path) is True
+
+    # The temporary health-check file should be removed.
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_check_vault_writable_for_missing_directory(tmp_path):
+    """A missing vault directory should fail the storage check."""
+    missing_path = tmp_path / "missing-vault"
+
+    assert check_vault_writable(missing_path) is False
+
+
+def test_check_vault_writable_for_file_path(tmp_path):
+    """A regular file is not a valid vault directory."""
+    file_path = tmp_path / "not-a-directory"
+    file_path.write_text("test", encoding="utf-8")
+
+    assert check_vault_writable(file_path) is False
 
 
 @pytest.mark.asyncio
@@ -95,7 +120,6 @@ def test_production_rejects_weak_secret_key():
             SECRET_KEY="this-is-a-weak-key-without-insecure",
         )
 
-
 def test_production_rejects_invalid_environment_name():
     """Unknown environment names should not silently select a configuration."""
     with pytest.raises(ValueError):
@@ -113,12 +137,13 @@ def test_production_requires_explicit_non_localhost_cors_origins():
     ):
         Settings(
             APP_ENV="production",
+            STORAGE_VAULT_PATH=str(Path("C:/trustvault-test-vault")),
             SECRET_KEY="a-strong-production-secret-key-with-more-than-32-chars",
             CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173",
-            DATABASE_ADMIN_URL="postgresql+asyncpg://admin:real-password@db.example.com:5432/trustvault",
-            DATABASE_ADMIN_SYNC_URL="postgresql+psycopg://admin:real-password@db.example.com:5432/trustvault",
-            DATABASE_APP_URL="postgresql+asyncpg://app:real-password@db.example.com:5432/trustvault",
-            DATABASE_APP_SYNC_URL="postgresql+psycopg://app:real-password@db.example.com:5432/trustvault",
+            DATABASE_ADMIN_URL="postgresql+asyncpg://admin:real-password@db.trustvault.internal:5432/trustvault?ssl=verify-full",
+            DATABASE_ADMIN_SYNC_URL="postgresql+psycopg://admin:real-password@db.trustvault.internal:5432/trustvault?sslmode=verify-full",
+            DATABASE_APP_URL="postgresql+asyncpg://app:real-password@db.trustvault.internal:5432/trustvault?ssl=verify-full",
+            DATABASE_APP_SYNC_URL="postgresql+psycopg://app:real-password@db.trustvault.internal:5432/trustvault?sslmode=verify-full",
             TEST_DATABASE_URL="postgresql+asyncpg://app:real-password@localhost:5432/trustvault_test",
             TEST_DATABASE_ADMIN_URL="postgresql+asyncpg://admin:real-password@localhost:5432/trustvault_test",
         )
@@ -129,14 +154,218 @@ def test_production_does_not_require_test_database_credentials():
     """Production validation should not depend on test database credentials."""
     config = Settings(
         APP_ENV="production",
+        STORAGE_VAULT_PATH=str(Path("C:/trustvault-test-vault")),
         SECRET_KEY="a-strong-production-secret-key-with-more-than-32-chars",
         CORS_ORIGINS="https://trustvault.example.com",
-        DATABASE_ADMIN_URL="postgresql+asyncpg://admin:real-password@db.example.com:5432/trustvault",
-        DATABASE_ADMIN_SYNC_URL="postgresql+psycopg://admin:real-password@db.example.com:5432/trustvault",
-        DATABASE_APP_URL="postgresql+asyncpg://app:real-password@db.example.com:5432/trustvault",
-        DATABASE_APP_SYNC_URL="postgresql+psycopg://app:real-password@db.example.com:5432/trustvault",
+        DATABASE_ADMIN_URL="postgresql+asyncpg://admin:real-password@db.trustvault.internal:5432/trustvault?ssl=verify-full",
+        DATABASE_ADMIN_SYNC_URL="postgresql+psycopg://admin:real-password@db.trustvault.internal:5432/trustvault?sslmode=verify-full",
+        DATABASE_APP_URL="postgresql+asyncpg://app:real-password@db.trustvault.internal:5432/trustvault?ssl=verify-full",
+        DATABASE_APP_SYNC_URL="postgresql+psycopg://app:real-password@db.trustvault.internal:5432/trustvault?sslmode=verify-full",
         TEST_DATABASE_URL="postgresql+asyncpg://app:app_password_change_me@localhost:5432/trustvault_test",
         TEST_DATABASE_ADMIN_URL="postgresql+asyncpg://admin:admin_password_change_me@localhost:5432/trustvault_test",
     )
 
     assert config.APP_ENV == "production"
+
+def test_production_environment_normalization():
+    """Environment validation should normalize case and whitespace."""
+    import pytest
+
+    from app.core.config import Settings
+
+    with pytest.raises(
+        ValueError,
+        match="Production environment cannot use a default or insecure SECRET_KEY",
+    ):
+        Settings(
+            APP_ENV="Production",
+            SECRET_KEY="trustvault-insecure-development-secret-key-32-bytes-minimum!",
+        )
+
+
+def test_production_rejects_loopback_database_address():
+    """Production must reject loopback IP literals in database URLs."""
+    with pytest.raises(
+        ValueError,
+        match="localhost or loopback addresses",
+    ):
+        Settings(
+            APP_ENV="production",
+            STORAGE_VAULT_PATH="C:/trustvault-test-vault",
+            SECRET_KEY="a-strong-production-secret-key-with-more-than-32-chars",
+            CORS_ORIGINS="https://trustvault.example.com",
+            DATABASE_ADMIN_URL=(
+                "postgresql+asyncpg://admin:real-password@127.0.0.1:5432/trustvault"
+            ),
+            DATABASE_ADMIN_SYNC_URL=(
+                "postgresql+psycopg://admin:real-password@db.trustvault.internal:5432/trustvault"
+            ),
+            DATABASE_APP_URL=(
+                "postgresql+asyncpg://app:real-password@db.trustvault.internal:5432/trustvault"
+            ),
+            DATABASE_APP_SYNC_URL=(
+                "postgresql+psycopg://app:real-password@db.trustvault.internal:5432/trustvault"
+            ),
+        )
+def test_production_rejects_ipv6_loopback_database_address():
+    """Production must reject IPv6 loopback database addresses."""
+    with pytest.raises(
+        ValueError,
+        match="localhost or loopback addresses",
+    ):
+        Settings(
+            APP_ENV="production",
+            STORAGE_VAULT_PATH="C:/trustvault-test-vault",
+            SECRET_KEY="a-strong-production-secret-key-with-more-than-32-chars",
+            CORS_ORIGINS="https://trustvault.example.com",
+            DATABASE_ADMIN_URL=(
+                "postgresql+asyncpg://admin:real-password@[::1]:5432/trustvault"
+            ),
+            DATABASE_ADMIN_SYNC_URL=(
+                "postgresql+psycopg://admin:real-password@db.trustvault.internal:5432/trustvault"
+            ),
+            DATABASE_APP_URL=(
+                "postgresql+asyncpg://app:real-password@db.trustvault.internal:5432/trustvault"
+            ),
+            DATABASE_APP_SYNC_URL=(
+                "postgresql+psycopg://app:real-password@db.trustvault.internal:5432/trustvault"
+            ),
+        )
+
+
+def test_production_rejects_placeholder_database_hostname():
+    """Production must reject an example hostname used as a placeholder."""
+    with pytest.raises(ValueError):
+        Settings(
+            APP_ENV="production",
+            STORAGE_VAULT_PATH="C:/trustvault-test-vault",
+            SECRET_KEY="a-strong-production-secret-key-with-more-than-32-chars",
+            CORS_ORIGINS="https://trustvault.example.com",
+            DATABASE_ADMIN_URL=(
+                "postgresql+asyncpg://admin:real-password@example.com:5432/trustvault"
+            ),
+            DATABASE_ADMIN_SYNC_URL=(
+                "postgresql+psycopg://admin:real-password@db.trustvault.internal:5432/trustvault"
+            ),
+            DATABASE_APP_URL=(
+                "postgresql+asyncpg://app:real-password@db.trustvault.internal:5432/trustvault"
+            ),
+            DATABASE_APP_SYNC_URL=(
+                "postgresql+psycopg://app:real-password@db.trustvault.internal:5432/trustvault"
+            ),
+        )
+
+def test_production_rejects_database_urls_without_tls():
+    """Production database URLs must explicitly enable TLS."""
+    with pytest.raises(ValueError, match="TLS"):
+        Settings(
+            APP_ENV="production",
+            STORAGE_VAULT_PATH="C:/trustvault-test-vault",
+            SECRET_KEY="a-strong-production-secret-key-with-more-than-32-chars",
+            CORS_ORIGINS="https://trustvault.example.com",
+            DATABASE_ADMIN_URL=(
+                "postgresql+asyncpg://admin:real-password"
+                "@db.trustvault.internal:5432/trustvault"
+            ),
+            DATABASE_ADMIN_SYNC_URL=(
+                "postgresql+psycopg://admin:real-password"
+                "@db.trustvault.internal:5432/trustvault"
+            ),
+            DATABASE_APP_URL=(
+                "postgresql+asyncpg://app:real-password"
+                "@db.trustvault.internal:5432/trustvault"
+            ),
+            DATABASE_APP_SYNC_URL=(
+                "postgresql+psycopg://app:real-password"
+                "@db.trustvault.internal:5432/trustvault"
+            ),
+        )
+
+
+def test_production_rejects_database_url_without_hostname():
+    """Production database URLs must specify a hostname."""
+    with pytest.raises(ValueError, match="hostname"):
+        Settings(
+            APP_ENV="production",
+            STORAGE_VAULT_PATH="C:/trustvault-test-vault",
+            SECRET_KEY="a-strong-production-secret-key-with-more-than-32-chars",
+            CORS_ORIGINS="https://trustvault.example.com",
+            DATABASE_ADMIN_URL="postgresql+asyncpg:///trustvault",
+            DATABASE_ADMIN_SYNC_URL=(
+                "postgresql+psycopg://admin:real-password"
+                "@db.trustvault.internal:5432/trustvault?sslmode=verify-full"
+            ),
+            DATABASE_APP_URL=(
+                "postgresql+asyncpg://app:real-password"
+                "@db.trustvault.internal:5432/trustvault?ssl=verify-full"
+            ),
+            DATABASE_APP_SYNC_URL=(
+                "postgresql+psycopg://app:real-password"
+                "@db.trustvault.internal:5432/trustvault?sslmode=verify-full"
+            ),
+        )
+
+
+def test_production_rejects_relative_storage_path():
+    """Production storage must use an absolute path."""
+    with pytest.raises(ValueError, match="absolute path"):
+        Settings(
+            APP_ENV="production",
+            STORAGE_VAULT_PATH="./storage_vault",
+            SECRET_KEY="a-strong-production-secret-key-with-more-than-32-chars",
+            CORS_ORIGINS="https://trustvault.example.com",
+            DATABASE_ADMIN_URL=(
+                "postgresql+asyncpg://admin:real-password"
+                "@db.trustvault.internal:5432/trustvault?ssl=verify-full"
+            ),
+            DATABASE_ADMIN_SYNC_URL=(
+                "postgresql+psycopg://admin:real-password"
+                "@db.trustvault.internal:5432/trustvault?sslmode=verify-full"
+            ),
+            DATABASE_APP_URL=(
+                "postgresql+asyncpg://app:real-password"
+                "@db.trustvault.internal:5432/trustvault?ssl=verify-full"
+            ),
+            DATABASE_APP_SYNC_URL=(
+                "postgresql+psycopg://app:real-password"
+                "@db.trustvault.internal:5432/trustvault?sslmode=verify-full"
+            ),
+        )
+
+def test_production_rejects_test_url_pointing_to_production_database():
+    """A test URL must not target the production database."""
+    with pytest.raises(
+        ValueError,
+        match="Test database URLs must not point to the production",
+    ):
+        Settings(
+            APP_ENV="production",
+            STORAGE_VAULT_PATH="C:/trustvault-test-vault",
+            SECRET_KEY="a-strong-production-secret-key-with-more-than-32-chars",
+            CORS_ORIGINS="https://trustvault.example.com",
+            DATABASE_ADMIN_URL=(
+                "postgresql+asyncpg://admin:real-password"
+                "@db.trustvault.internal:5432/trustvault?ssl=verify-full"
+            ),
+            DATABASE_ADMIN_SYNC_URL=(
+                "postgresql+psycopg://admin:real-password"
+                "@db.trustvault.internal:5432/trustvault?sslmode=verify-full"
+            ),
+            DATABASE_APP_URL=(
+                "postgresql+asyncpg://app:real-password"
+                "@db.trustvault.internal:5432/trustvault?ssl=verify-full"
+            ),
+            DATABASE_APP_SYNC_URL=(
+                "postgresql+psycopg://app:real-password"
+                "@db.trustvault.internal:5432/trustvault?sslmode=verify-full"
+            ),
+            TEST_DATABASE_URL=(
+                "postgresql+asyncpg://app:real-password"
+                "@db.trustvault.internal:5432/trustvault"
+                "_production_backup?ssl=verify-full"
+            ),
+            TEST_DATABASE_ADMIN_URL=(
+                "postgresql+asyncpg://admin:real-password"
+                "@db.trustvault.internal:5432/trustvault_test"
+            ),
+        )

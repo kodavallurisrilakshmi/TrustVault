@@ -1,5 +1,7 @@
 import os
 import uuid
+import tempfile
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, Request, Response, status
@@ -56,6 +58,38 @@ async def health_check():
     """Basic liveness probe."""
     return {"status": "ok", "service": settings.APP_NAME}
 
+def check_vault_writable(vault_root: Path) -> bool:
+    """Check whether the private vault directory supports file writes."""
+    if not vault_root.is_dir():
+        return False
+
+    test_file = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            prefix=".trustvault-health-",
+            dir=vault_root,
+            delete=False,
+        ) as file:
+            test_file = Path(file.name)
+            file.write(b"health-check")
+            file.flush()
+
+        return True
+
+    except OSError:
+        return False
+
+    finally:
+        if test_file is not None:
+            try:
+                test_file.unlink(missing_ok=True)
+            except OSError:
+                # Do not expose internal filesystem details in health responses.
+                pass
+
+
 
 @app.get("/health/ready", tags=["Health"])
 async def readiness_check(db: AsyncSession = Depends(get_db)):
@@ -71,27 +105,35 @@ async def readiness_check(db: AsyncSession = Depends(get_db)):
         db_status = "error"
 
     vault_root = get_vault_root()
-    vault_status = (
-        "ok"
-        if vault_root.is_dir()
-        else "missing"
-    )
+
+    if not vault_root.is_dir():
+        vault_status = "missing"
+    elif check_vault_writable(vault_root):
+        vault_status = "ok"
+    else:
+        vault_status = "error"
 
     is_ready = db_status == "ok" and vault_status == "ok"
 
-    return {
-        "status": "ready" if is_ready else "not_ready",
-        "database": db_status,
-        "vault": vault_status,
-    } if is_ready else Response(
-        content='{"status":"not_ready","database":"'
-        + db_status
-        + '","vault":"'
-        + vault_status
-        + '"}',
+    if is_ready:
+        return {
+            "status": "ready",
+            "database": db_status,
+            "vault": vault_status,
+        }
+
+    return Response(
+        content=(
+            '{"status":"not_ready","database":"'
+            + db_status
+            + '","vault":"'
+            + vault_status
+            + '"}'
+        ),
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         media_type="application/json",
     )
+
 
 
 @app.get("/health/live", tags=["Health"])

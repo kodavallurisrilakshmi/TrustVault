@@ -1,4 +1,4 @@
-# Security Policy — TrustVault
+﻿# Security Policy (—) TrustVault
 
 ## 1. Security Philosophy and Standards
 
@@ -53,14 +53,19 @@ A valid hash chain demonstrates consistency of the records being checked; by its
 
 ## 5. Verification Status
 
-Latest reported local verification:
+Latest local verification checkpoint: 2026-10-24.
 
-- **Backend tests:** 85 passed, 0 failed in 12.83 seconds (latest local verification, 2026-10-24).
-- **Frontend production build:** Successful with Vite 5.4.21; 33 modules transformed.
-- **Pydantic configuration:** Deprecated class-based schema configuration replaced with `ConfigDict`.
-- **Upload-size boundaries:** Previously reported tests confirmed that an upload exactly at the configured 25 MiB limit succeeds and an upload one byte over the limit is rejected with HTTP 413.
-- **Database privilege separation:** Production PostgreSQL privileges were manually verified on 2026-10-23. These checks are not automated integration tests against the production roles.
+- **Backend tests:** 99 passed, 0 failed, in 5.56 seconds (latest rerun on 2026-10-24).
+- **Configuration and health tests:** 21 passed, 0 failed in the latest focused rerun.
+- **Frontend production build:** Successful using Vite 5.4.21; 33 modules transformed.
+- **Audit integrity tests:** 10 passed, 0 failed in the latest focused rerun.
+- **Live audit-chain integrity:** HTTP 200; `is_valid=true`; 152 records verified on 2026-10-24, with no broken record reported.
+- **Database migration:** Current and head revisions both equal `ed28e992c911` on 2026-10-24.
+- **Production database protections:** Read-only checks on 2026-10-24 confirmed trustvault_app has SELECT and INSERT, but not UPDATE, DELETE, or TRUNCATE on public.audit_logs; trustvault_admin owns the table; the app role is not an owner-role member; and trg_audit_logs_immutable is enabled. These are manual checks, not automated production-role integration tests.
+- **Repository hygiene:** Environment-file ignore rules and secret scans passed at earlier local checkpoints. Repeat these checks before publication.
 
-Latest verification checkpoint: backend test suite and frontend production build passed at commit `35b1356` (`Test upload rollback when audit logging fails`).
+These results are a local verification snapshot, not a security certification. Passing tests and building the frontend do not establish that production infrastructure is configured securely or that every security threat has been mitigated.
 
-These results are a verification snapshot, not a security certification. Consult `THREATS.md` for outstanding tests, known limitations, and production recommendations. Repeat relevant checks after subsequent code or configuration changes.
+Outstanding work includes production hosting and persistent storage configuration, production secret and CORS verification, audit-failure monitoring, external immutable audit-log anchoring, and verification of the remaining items in `THREATS.md`.
+
+Repeat relevant checks after subsequent code or configuration changes. Do not describe unverified controls as implemented or proven.

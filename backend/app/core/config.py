@@ -1,5 +1,7 @@
+import ipaddress
+from pathlib import Path
 from typing import List
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,8 +24,8 @@ class Settings(BaseSettings):
     @classmethod
     def validate_app_env(cls, value: str) -> str:
         value = value.strip().lower()
-
         allowed_environments = {"development", "testing", "production"}
+
         if value not in allowed_environments:
             raise ValueError(
                 "APP_ENV must be development, testing, or production"
@@ -92,11 +94,11 @@ class Settings(BaseSettings):
 
     @field_validator("SECRET_KEY")
     @classmethod
-    def validate_secret_key(cls, v: str, info) -> str:
+    def validate_secret_key(cls, value: str, info) -> str:
         env = info.data.get("APP_ENV", "development").strip().lower()
 
         if env == "production":
-            normalized = v.strip().lower()
+            normalized = value.strip().lower()
             known_insecure_values = {
                 "trustvault-insecure-development-secret-key-32-bytes-minimum!",
                 "change_me",
@@ -107,24 +109,34 @@ class Settings(BaseSettings):
                 "password",
             }
 
-            if normalized in known_insecure_values or "insecure" in normalized:
+            if (
+                normalized in known_insecure_values
+                or "insecure" in normalized
+            ):
                 raise ValueError(
                     "Production environment cannot use a default or insecure SECRET_KEY"
                 )
 
-            if len(v) < 32:
+            if len(value) < 32:
                 raise ValueError(
                     "Production SECRET_KEY must be at least 32 characters long"
                 )
 
-        return v
+        return value
 
     @model_validator(mode="after")
     def validate_production_settings(self):
-        if self.APP_ENV.strip().lower() != "production":
+        if self.APP_ENV != "production":
             return self
 
-        # Validate production database credentials first.
+        # Require a sufficiently long, nontrivial production secret.
+        secret = self.SECRET_KEY.strip()
+        if len(secret) < 32 or len(set(secret)) < 16:
+            raise ValueError(
+                "Production SECRET_KEY must be at least 32 characters "
+                "and contain sufficient character diversity"
+            )
+
         database_urls = [
             self.DATABASE_ADMIN_URL,
             self.DATABASE_ADMIN_SYNC_URL,
@@ -132,36 +144,151 @@ class Settings(BaseSettings):
             self.DATABASE_APP_SYNC_URL,
         ]
 
-        placeholder_credentials = (
+        placeholder_hosts = {
+            "localhost",
+            "localhost.localdomain",
+            "example",
+            "example.com",
+            "your_host",
+            "your-host",
+        }
+
+        placeholder_credentials = {
+            "change_me",
+            "changeme",
+            "your_password",
+            "your-password",
             "admin_password_change_me",
             "app_password_change_me",
-            "change_me",
-            "your_password",
+            "password",
             "example",
-        )
+        }
 
+        production_targets = set()
+
+        # Validate production database URLs.
         for url in database_urls:
-            parsed_url = urlparse(url)
-            username = unquote(parsed_url.username or "").lower()
-            password = unquote(parsed_url.password or "").lower()
+            parsed = urlparse(url)
+            hostname = (parsed.hostname or "").strip().lower()
+            username = unquote(parsed.username or "").lower()
+            password = unquote(parsed.password or "").lower()
+            database_name = parsed.path.lstrip("/").lower()
 
-            if any(
-                value in username or value in password
-                for value in placeholder_credentials
+            # Check credentials before host/TLS so failures are specific.
+            if (
+                username in placeholder_credentials
+                or password in placeholder_credentials
             ):
                 raise ValueError(
                     "Production database URLs must not use placeholder credentials"
                 )
 
-        # Production frontend origins must use HTTPS.
+            if parsed.scheme not in {
+                "postgresql+asyncpg",
+                "postgresql+psycopg",
+            }:
+                raise ValueError(
+                    "Production database URLs must use a supported PostgreSQL driver"
+                )
+
+            if not hostname:
+                raise ValueError(
+                    "Production database URLs must specify a hostname"
+                )
+
+            try:
+                ip = ipaddress.ip_address(hostname)
+            except ValueError:
+                ip = None
+
+            if (
+                hostname in {"localhost", "localhost.localdomain"}
+                or (ip is not None and (ip.is_loopback or ip.is_unspecified))
+            ):
+                raise ValueError(
+                    "Production database URLs must not use localhost or loopback addresses"
+                )
+
+            if (
+                hostname in placeholder_hosts
+                or hostname.endswith(".example")
+                or hostname.endswith(".invalid")
+                or hostname.endswith(".test")
+            ):
+                raise ValueError(
+                    "Production database URLs must not use placeholder hostnames"
+                )
+
+            query = parse_qs(parsed.query)
+            if parsed.scheme == "postgresql+asyncpg":
+                tls_values = query.get("ssl", [])
+            else:
+                tls_values = query.get("sslmode", [])
+
+            if "verify-full" not in {
+                value.strip().lower() for value in tls_values
+            }:
+                raise ValueError(
+                    "Production database URLs must enable TLS with certificate verification (verify-full)"
+                )
+
+            production_targets.add(
+                (hostname, parsed.port or 5432, database_name)
+            )
+
+        # Test database URLs must not target production databases.
+        test_urls = [
+            self.TEST_DATABASE_URL,
+            self.TEST_DATABASE_ADMIN_URL,
+        ]
+
+        for url in test_urls:
+            parsed_test = urlparse(url)
+            test_host = (parsed_test.hostname or "").strip().lower()
+            test_database = parsed_test.path.lstrip("/").lower()
+            test_port = parsed_test.port or 5432
+
+            if any(
+    test_host == production_host
+    and test_port == production_port
+    and (
+        test_database == production_database
+        or test_database.startswith(production_database + "_")
+    )
+    for production_host, production_port, production_database in production_targets):
+             raise ValueError(
+                 "Test database URLs must not point to the production database"
+        )
+
+        # Production storage must be an absolute path.
+        if not Path(self.STORAGE_VAULT_PATH).is_absolute():
+            raise ValueError(
+                "Production STORAGE_VAULT_PATH must be an absolute path"
+            )
+
+        # Validate production frontend origins.
         for origin in self.cors_origins_list:
             parsed_origin = urlparse(origin)
-            hostname = (parsed_origin.hostname or "").lower()
+            hostname = (parsed_origin.hostname or "").strip().lower()
+
+            try:
+                ip = ipaddress.ip_address(hostname)
+            except ValueError:
+                ip = None
 
             if (
                 parsed_origin.scheme != "https"
                 or not hostname
-                or hostname in {"localhost", "127.0.0.1", "::1"}
+                or parsed_origin.username is not None
+                or parsed_origin.password is not None
+                or parsed_origin.path not in {"", "/"}
+                or parsed_origin.query
+                or parsed_origin.fragment
+                or hostname in {
+                    "localhost",
+                    "localhost.localdomain",
+                }
+                or (ip is not None and (ip.is_loopback or ip.is_unspecified))
             ):
                 raise ValueError(
                     "Production CORS origins must use HTTPS and must not use localhost"

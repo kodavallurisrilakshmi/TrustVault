@@ -10,7 +10,7 @@ from app.models.user import User
 
 def test_argon2id_password_hashing():
     """Verify passwords are authenticated with Argon2id and mismatches are rejected."""
-    raw_password = "SuperSecurePassword987!"
+    raw_password = "test-only-password-for-argon2"
     hashed = hash_password(raw_password)
 
     # Hash must start with $argon2id$

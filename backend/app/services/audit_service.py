@@ -11,8 +11,13 @@ from app.schemas.audit import AuditChainVerificationResult
 from app.core.database import async_session_factory
 
 logger = logging.getLogger(__name__)
+
 # Global advisory lock ID for serializing audit-chain writes in PostgreSQL.
 AUDIT_CHAIN_ADVISORY_LOCK_ID = 748192837
+
+# Explicit supported audit hash versions.
+LEGACY_HASH_VERSION = 1
+CURRENT_HASH_VERSION = 2
 
 
 class AuditService:
@@ -38,8 +43,6 @@ class AuditService:
         The lock remains held until the surrounding transaction commits or
         rolls back. Lock failures are not silently ignored.
         """
-        # Require PostgreSQL because the audit chain relies on its
-        # transaction-level advisory lock for concurrent-write safety.
         dialect_name = db.get_bind().dialect.name
 
         if dialect_name != "postgresql":
@@ -47,18 +50,18 @@ class AuditService:
                 "Audit hash-chain writes require PostgreSQL advisory locking."
             )
 
-        # 1. Acquire the transaction-level advisory lock.
+        # Serialize writes so concurrent events cannot select the same
+        # previous hash.
         await db.execute(
             text("SELECT pg_advisory_xact_lock(:lock_id)"),
             {"lock_id": AUDIT_CHAIN_ADVISORY_LOCK_ID},
         )
 
-        # 2. Generate the timestamp after acquiring the lock so the
-        # timestamp reflects the serialized write order more closely.
+        # Timestamp is generated after acquiring the lock.
         now = datetime.now(timezone.utc)
         safe_metadata = metadata_json or {}
 
-        # 3. Read the latest record's hash while holding the lock.
+        # Find the previous chain record while holding the advisory lock.
         stmt = (
             select(AuditLog.record_hash)
             .order_by(AuditLog.timestamp.desc(), AuditLog.id.desc())
@@ -67,7 +70,7 @@ class AuditService:
         prev_hash_res = await db.execute(stmt)
         prev_hash = prev_hash_res.scalar_one_or_none()
 
-        # 4. Calculate the deterministic record hash.
+        # All new records use the version 2 JSON-based hash format.
         record_hash = AuditLog.calculate_record_hash(
             prev_hash=prev_hash,
             timestamp=now,
@@ -79,9 +82,11 @@ class AuditService:
             result=result,
             denial_reason=denial_reason,
             metadata_json=safe_metadata,
+            actor_email=actor_email,
+            actor_ip=actor_ip,
+            user_agent=user_agent,
         )
 
-        # 5. Construct the audit record.
         audit_entry = AuditLog(
             request_id=request_id,
             actor_id=actor_id,
@@ -96,6 +101,7 @@ class AuditService:
             metadata_json=safe_metadata,
             prev_hash=prev_hash,
             record_hash=record_hash,
+            hash_version=CURRENT_HASH_VERSION,
             timestamp=now,
         )
 
@@ -117,10 +123,7 @@ class AuditService:
         metadata_json: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
-        Record a denied or forbidden event in an independent session.
-
-        This allows unauthorized attempts to be recorded independently of
-        the main business transaction.
+        Record a denied event in an independent database session.
         """
         async with async_session_factory() as session:
             try:
@@ -155,7 +158,9 @@ class AuditService:
         """
         Verify audit records in chronological order.
 
-        Detects broken previous-hash links and modified record contents.
+        Checks previous-hash links and record contents using only the
+        algorithm explicitly identified by each record's hash_version.
+        Unsupported versions fail verification.
         """
         stmt = select(AuditLog).order_by(
             AuditLog.timestamp.asc(),
@@ -177,7 +182,7 @@ class AuditService:
         expected_prev_hash: Optional[str] = None
 
         for idx, record in enumerate(records):
-            # Check the link to the preceding record.
+            # Verify the chain link before checking the record contents.
             if record.prev_hash != expected_prev_hash:
                 return AuditChainVerificationResult(
                     is_valid=False,
@@ -191,19 +196,54 @@ class AuditService:
                     ),
                 )
 
-            # Recompute the record hash from its stored contents.
-            recomputed = AuditLog.calculate_record_hash(
-                prev_hash=record.prev_hash,
-                timestamp=record.timestamp,
-                request_id=record.request_id,
-                actor_id=record.actor_id,
-                action=record.action,
-                target_type=record.target_type,
-                target_id=record.target_id,
-                result=record.result,
-                denial_reason=record.denial_reason,
-                metadata_json=record.metadata_json,
-            )
+            # Select exactly one algorithm. Never fall back between formats.
+            if record.hash_version == LEGACY_HASH_VERSION:
+                # Version 1 hashes did not include actor_email, actor_ip,
+                # or user_agent. Preserve the original preimage format.
+                recomputed = AuditLog.calculate_record_hash(
+                    prev_hash=record.prev_hash,
+                    timestamp=record.timestamp,
+                    request_id=record.request_id,
+                    actor_id=record.actor_id,
+                    action=record.action,
+                    target_type=record.target_type,
+                    target_id=record.target_id,
+                    result=record.result,
+                    denial_reason=record.denial_reason,
+                    metadata_json=record.metadata_json,
+                )
+
+            elif record.hash_version == CURRENT_HASH_VERSION:
+                # Version 2 hashes include the actor details.
+                recomputed = AuditLog.calculate_record_hash(
+                    prev_hash=record.prev_hash,
+                    timestamp=record.timestamp,
+                    request_id=record.request_id,
+                    actor_id=record.actor_id,
+                    action=record.action,
+                    target_type=record.target_type,
+                    target_id=record.target_id,
+                    result=record.result,
+                    denial_reason=record.denial_reason,
+                    metadata_json=record.metadata_json,
+                    actor_email=record.actor_email,
+                    actor_ip=record.actor_ip,
+                    user_agent=record.user_agent,
+                )
+
+            else:
+                return AuditChainVerificationResult(
+                    is_valid=False,
+                    total_records=len(records),
+                    broken_record_id=record.id,
+                    expected_hash=None,
+                    actual_hash=record.record_hash,
+                    message=(
+                        f"Unsupported audit hash version "
+                        f"{record.hash_version} at index {idx} "
+                        f"(record {record.id})"
+                    ),
+                )
 
             if record.record_hash != recomputed:
                 return AuditChainVerificationResult(
